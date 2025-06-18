@@ -1,0 +1,221 @@
+/* Tailwind directives */
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Book page flip animation */
+.book-content {
+  perspective: 1500px;
+}
+
+.page {
+  position: relative;
+  transform-style: preserve-3d;
+  transform-origin: left center;
+  transition: transform 0.8s cubic-bezier(0.645, 0.045, 0.355, 1);
+  transform: rotateY(0deg);
+}
+
+.page.flipping {
+  transform: rotateY(-180deg);
+}
+
+.page-front,
+.page-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  background: white;
+  padding: 2rem;
+}
+
+.page-back {
+  transform: rotateY(180deg);
+}
+
+.page-curl {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to right, rgba(0,0,0,0.15) 0%, transparent 10%);
+  pointer-events: none;
+}
+
+.perspective {
+  perspective: 1500px;
+}
+
+.page-turn-right {
+  animation: turnRight 0.3s ease-in-out forwards;
+}
+
+.page-turn-left {
+  animation: turnLeft 0.3s ease-in-out forwards;
+}
+
+@keyframes turnRight {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(-180deg);
+  }
+}
+
+@keyframes turnLeft {
+  0% {
+    transform: rotateY(0deg);
+  }
+  100% {
+    transform: rotateY(180deg);
+  }
+}
+
+/* Digital Reader Styles */
+.digital-reader {
+  background: linear-gradient(to bottom right, rgb(17, 24, 39), rgb(0, 0, 0));
+}
+
+.book-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 3rem;
+  background: rgba(31, 41, 55, 0.95);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.book-header {
+  margin-bottom: 2.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.book-title {
+  font-family: "Playfair Display", serif;
+  color: #ffffff;
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.2;
+}
+
+.book-author {
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 1.1rem;
+  font-style: italic;
+}
+
+.book-content {
+  font-family: "Crimson Text", serif;
+  line-height: 1.8;
+  font-size: 1.25rem;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 2rem 0;
+  transition: opacity 0.3s ease-in-out;
+}
+
+.book-content p {
+  transition: transform 0.3s ease-in-out;
+}
+
+.page-number {
+  font-family: "Playfair Display", serif;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.875rem;
+  text-align: center;
+  margin-top: 3rem;
+  font-style: italic;
+}
+
+.reader-controls {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 1.25rem;
+  background: rgba(17, 24, 39, 0.95);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2rem;
+  z-index: 50;
+}
+
+.control-button {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: rgb(31, 41, 55);
+  border: 1px solid rgb(55, 65, 81);
+  color: white;
+  transition: all 200ms;
+}
+
+.control-button:not(:disabled):hover {
+  background-color: rgb(55, 65, 81);
+  transform: scale(1.1);
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Reader Controls Input Styles */
+.reader-controls input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+  -webkit-appearance: textfield;
+}
+
+.reader-controls input[type="number"]::-webkit-outer-spin-button,
+.reader-controls input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Tambahkan animasi halaman */
+.page-transition {
+  transition: opacity 0.4s ease-in-out;
+}
+
+.page-transition-enter {
+  opacity: 0;
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+}
+
+.page-transition-exit {
+  opacity: 1;
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+}
+
+/* Add smooth scrolling to the whole page */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Prevent animation on page load */
+.no-animation {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+/* Add this class to elements that should animate */
+.animate-on-scroll {
+  will-change: transform, opacity;
+}
