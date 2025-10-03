@@ -1,0 +1,122 @@
+// API configuration and utility functions
+const API_BASE_URL = 'http://localhost:3001/api';
+
+// Get token from localStorage
+const getToken = () => {
+  return localStorage.getItem('token');
+};
+
+// Set token to localStorage
+const setToken = (token) => {
+  localStorage.setItem('token', token);
+};
+
+// Remove token from localStorage
+const removeToken = () => {
+  localStorage.removeItem('token');
+};
+
+// API request wrapper with automatic token handling
+const apiRequest = async (endpoint, options = {}) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const token = getToken();
+
+  const config = {
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` }),
+      ...options.headers,
+    },
+    ...options,
+  };
+
+  try {
+    const response = await fetch(url, config);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'API request failed');
+    }
+
+    return data;
+  } catch (error) {
+    console.error('API Error:', error);
+    throw error;
+  }
+};
+
+// Authentication API calls
+export const authAPI = {
+  // Login user
+  login: async (username, password) => {
+    const response = await apiRequest('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    
+    if (response.status === 'success') {
+      setToken(response.data.token);
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+    }
+    
+    return response;
+  },
+
+  // Register user (DON'T auto-login)
+  register: async (username, password, role) => {
+    const response = await apiRequest('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role }),
+    });
+    
+    // Don't save token automatically after register
+    // User harus login manual setelah register
+    return response;
+  },
+
+  // Get user profile
+  getProfile: async () => {
+    return await apiRequest('/auth/profile');
+  },
+
+  // Logout user
+  logout: () => {
+    removeToken();
+    localStorage.removeItem('user');
+  }
+};
+
+// Books API calls (akan dibuat nanti)
+export const booksAPI = {
+  // Placeholder for future implementation
+  getAll: async () => {
+    return await apiRequest('/books');
+  },
+  
+  getById: async (id) => {
+    return await apiRequest(`/books/${id}`);
+  },
+  
+  create: async (bookData) => {
+    return await apiRequest('/books', {
+      method: 'POST',
+      body: JSON.stringify(bookData),
+    });
+  },
+  
+  update: async (id, bookData) => {
+    return await apiRequest(`/books/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(bookData),
+    });
+  },
+  
+  delete: async (id) => {
+    return await apiRequest(`/books/${id}`, {
+      method: 'DELETE',
+    });
+  }
+};
+
+// Export utility functions
+export { getToken, setToken, removeToken, apiRequest };

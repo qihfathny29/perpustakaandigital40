@@ -17,20 +17,34 @@ function App() {
         <Route path="/" element={<BookCatalog />} />
         <Route
           path="/login"
-          element={user ? <Navigate to="/dashboard" /> : <Login />}
+          element={user ? <Navigate to={user.role === 'admin' || user.role === 'petugas' ? '/admin' : '/dashboard'} /> : <Login />}
         />
         <Route
           path="/register"
-          element={user ? <Navigate to="/dashboard" /> : <Register />}
+          element={user ? <Navigate to={user.role === 'admin' || user.role === 'petugas' ? '/admin' : '/dashboard'} /> : <Register />}
         />
         <Route
           path="/dashboard"
           element={
             user ? (
-              user.role === 'admin' ? (
+              user.role === 'student' ? (
+                <StudentDashboard />
+              ) : (
+                <Navigate to="/admin" replace />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            user ? (
+              user.role === 'admin' || user.role === 'petugas' ? (
                 <AdminDashboard />
               ) : (
-                <StudentDashboard />
+                <Navigate to="/dashboard" replace />
               )
             ) : (
               <Navigate to="/login" replace />
