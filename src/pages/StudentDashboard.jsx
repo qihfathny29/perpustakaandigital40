@@ -1,6 +1,6 @@
 import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { BorrowContext } from '../context/BorrowContext';
+import { useBorrow } from '../context/BorrowContext';
 import { ReadingContext } from '../context/ReadingContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { books } from '../data/books';
@@ -8,7 +8,7 @@ import BookCard from '../components/BookCard';
 
 function StudentDashboard() {
   const { user, logout } = useContext(AuthContext);
-  const { borrowedBooks, returnBook } = useContext(BorrowContext);
+  const { borrowedBooks, returnBook } = useBorrow();
   const { readingHistory, updateReadingProgress } = useContext(ReadingContext);
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('peminjaman');
@@ -95,16 +95,19 @@ function StudentDashboard() {
   };
 
   // Confirm return book
-  const confirmReturn = () => {
-    if (returnBook(selectedBorrowId)) {
+  const confirmReturn = async () => {
+    try {
+      await returnBook(selectedBorrowId);
       setShowReturnModal(false);
       setShowSuccessModal(true);
       setSelectedBorrowId(null);
-      // Tidak perlu setOverdueBooks/setShowOverdueModal di sini
-      // Karena borrowedBooks akan berubah, activeBorrows akan otomatis update
+      // borrowedBooks will automatically update through context
       setTimeout(() => {
         setShowSuccessModal(false);
       }, 3000);
+    } catch (error) {
+      console.error('Error returning book:', error);
+      // Could add error handling UI here
     }
   };
 
@@ -125,11 +128,11 @@ function StudentDashboard() {
     setActiveTab('riwayat'); // Switch to history tab
   };
 
-  // Get user's borrowed books
-  const userBorrowedBooks = borrowedBooks.filter(book => book.userId === user.username);
+  // Get user's borrowed books (no need to filter since /my-borrows already returns user-specific data)
+  const userBorrowedBooks = borrowedBooks;
   
-  // Get active borrows (status === 'borrowed' atau 'pending')
-  const activeBorrows = userBorrowedBooks.filter(book => book.status === 'borrowed' || book.status === 'pending');
+  // Get active borrows (status === 'approved' or 'pending')
+  const activeBorrows = userBorrowedBooks.filter(book => book.status === 'approved' || book.status === 'pending');
   
   // Get returned books (status === 'returned')
   const returnedBooks = userBorrowedBooks.filter(book => book.status === 'returned');
@@ -267,6 +270,11 @@ function StudentDashboard() {
   const [favoriteBook, setFavoriteBook] = useState('');
 
   useEffect(() => {
+    // Recalculate derived values inside useEffect to avoid dependency issues
+    const userBorrowedBooks = borrowedBooks; // No need to filter since /my-borrows already returns user-specific data
+    const activeBorrows = userBorrowedBooks.filter(book => book.status === 'approved' || book.status === 'pending');
+    const returnedBooks = userBorrowedBooks.filter(book => book.status === 'returned');
+
     // Calculate statistics
     setBorrowingStats({
       totalBorrowed: returnedBooks.length + activeBorrows.length,
@@ -277,8 +285,8 @@ function StudentDashboard() {
     // Calculate favorite book from borrowing history
     const bookCounts = {};
     returnedBooks.forEach(book => {
-      if (book.title) { // Only count books with titles
-        bookCounts[book.title] = (bookCounts[book.title] || 0) + 1;
+      if (book.book_title) { // Use book_title from database
+        bookCounts[book.book_title] = (bookCounts[book.book_title] || 0) + 1;
       }
     });
 
@@ -294,7 +302,7 @@ function StudentDashboard() {
     }
     
     setFavoriteBook(mostBorrowedBook);
-  }, [activeBorrows, returnedBooks]);
+  }, [borrowedBooks, user.id]);
 
   // Add useEffect to refresh reading history when component mounts
   useEffect(() => {

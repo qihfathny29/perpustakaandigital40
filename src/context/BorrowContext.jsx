@@ -1,107 +1,231 @@
-import { createContext, useState, useEffect } from 'react';
-import { books } from '../data/books';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { borrowAPI } from '../utils/api';
+import { useAuth } from './AuthContext';
 
 export const BorrowContext = createContext();
 
-export function BorrowProvider({ children }) {
-  const [borrowedBooks, setBorrowedBooks] = useState(() => {
-    const saved = localStorage.getItem('borrowedBooks');
-    return saved ? JSON.parse(saved) : [];
-  });
+export const useBorrow = () => {
+  const context = useContext(BorrowContext);
+  if (!context) {
+    throw new Error('useBorrow must be used within a BorrowProvider');
+  }
+  return context;
+};
 
+export const BorrowProvider = ({ children }) => {
+  const { user } = useAuth();
+  const [borrowedBooks, setBorrowedBooks] = useState([]);
+  const [borrowRequests, setBorrowRequests] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch borrowed books for current user
+  const fetchBorrowedBooks = async () => {
+    if (!user) return;
+    
+    try {
+      setIsLoading(true);
+      console.log('Fetching borrowed books for user:', user.id);
+      
+      const response = await borrowAPI.getBorrowedBooks();
+      console.log('BorrowContext - getBorrowedBooks response:', response);
+      
+      // Parse data dengan benar - backend mengirim data.borrows
+      const booksData = response.data?.borrows || [];
+      console.log('BorrowContext - Setting borrowedBooks to:', booksData);
+      setBorrowedBooks(booksData);
+    } catch (error) {
+      console.error('Error fetching borrowed books:', error);
+      // Set ke empty array jika ada error
+      setBorrowedBooks([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Fetch all borrow requests (for admin)
+  const fetchBorrowRequests = async () => {
+    if (!user || user.role !== 'admin') return;
+    
+    try {
+      setIsLoading(true);
+      const response = await borrowAPI.getAllBorrowRequests();
+      
+      // Parse data dengan benar - backend mengirim data.borrows untuk admin
+      const requestsData = response.data?.borrows || [];
+      setBorrowRequests(requestsData);
+    } catch (error) {
+      console.error('Error fetching borrow requests:', error);
+      // Set ke empty array jika ada error
+      setBorrowRequests([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load data when user changes
   useEffect(() => {
-    localStorage.setItem('borrowedBooks', JSON.stringify(borrowedBooks));
-  }, [borrowedBooks]);
-
-  // Siswa melakukan request peminjaman (status pending, stok tidak berkurang)
-  const borrowBook = (bookData, user) => {
-    const bookIndex = books.findIndex(b => b.id.toString() === bookData.id.toString());
-    if (bookIndex === -1) return false;
-
-    // Cek apakah sudah ada request pending untuk buku ini oleh user yang sama
-    const alreadyPending = borrowedBooks.some(
-      b => b.userId === user.username && b.bookId === bookData.id && b.status === 'pending'
-    );
-    if (alreadyPending) return false;
-
-    // Create borrow record (pending)
-    const borrowRecord = {
-      borrowId: `${Date.now()}-${user.username}`,
-      userId: user.username,
-      bookId: bookData.id,
-      title: bookData.title,
-      author: bookData.author,
-      category: bookData.category,
-      borrowDate: bookData.borrowDate,
-      dueDate: bookData.dueDate,
-      status: 'pending', // <--- status awal pending
-      returnDate: null
-    };
-
-    setBorrowedBooks(prev => [...prev, borrowRecord]);
-    return true;
-  };
-
-  // Admin menyetujui peminjaman (status jadi borrowed, stok baru berkurang)
-  const approveBorrow = (borrowId) => {
-    setBorrowedBooks(prev => prev.map(book => {
-      if (book.borrowId === borrowId && book.status === 'pending') {
-        // Kurangi stok buku
-        const bookIndex = books.findIndex(b => b.id.toString() === book.bookId.toString());
-        if (bookIndex !== -1 && books[bookIndex].stock > 0) {
-          books[bookIndex].stock -= 1;
-          if (books[bookIndex].stock === 0) {
-            books[bookIndex].available = false;
-          }
-          localStorage.setItem('books', JSON.stringify(books));
-        }
-        return { ...book, status: 'borrowed' };
+    if (user) {
+      fetchBorrowedBooks();
+      if (user.role === 'admin') {
+        fetchBorrowRequests();
       }
-      return book;
-    }));
-  };
+    } else {
+      setBorrowedBooks([]);
+      setBorrowRequests([]);
+    }
+  }, [user]);
 
-  // Admin menolak peminjaman (hapus request)
-  const rejectBorrow = (borrowId) => {
-    setBorrowedBooks(prev => prev.filter(book => book.borrowId !== borrowId));
-  };
-
-  // Siswa mengembalikan buku (hanya jika status borrowed)
-  const returnBook = (borrowId) => {
-    const bookToReturn = borrowedBooks.find(book => book.borrowId === borrowId);
-    if (!bookToReturn || bookToReturn.status !== 'borrowed') return false;
-
-    // Update book stock
-    const bookIndex = books.findIndex(b => b.id === bookToReturn.bookId);
-    if (bookIndex !== -1) {
-      books[bookIndex].stock += 1;
-      books[bookIndex].available = true;
-      localStorage.setItem('books', JSON.stringify(books));
+  // Borrow a book
+  const borrowBook = async (borrowData) => {
+    if (!user) {
+      throw new Error('Please login to borrow books');
     }
 
-    // Update borrowed books
-    setBorrowedBooks(prev => prev.map(book =>
-      book.borrowId === borrowId
-        ? {
-            ...book,
-            status: 'returned',
-            returnDate: new Date().toISOString()
-          }
-        : book
-    ));
+    try {
+      setIsLoading(true);
+      console.log('Attempting to borrow book:', borrowData);
+      
+      const response = await borrowAPI.borrowBook(borrowData);
+      console.log('Borrow response:', response);
+      
+      // Refresh borrowed books list
+      await fetchBorrowedBooks();
+      
+      return {
+        success: true,
+        message: 'Book borrowed successfully! Waiting for admin approval.'
+      };
+    } catch (error) {
+      console.error('Error borrowing book:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    return true;
+  // Return a book
+  const returnBook = async (borrowId) => {
+    try {
+      setIsLoading(true);
+      console.log('Attempting to return book:', borrowId);
+      
+      const response = await borrowAPI.returnBook(borrowId);
+      console.log('Return response:', response);
+      
+      // Refresh borrowed books list
+      await fetchBorrowedBooks();
+      
+      return {
+        success: true,
+        message: 'Book returned successfully!'
+      };
+    } catch (error) {
+      console.error('Error returning book:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Approve borrow request (admin only)
+  const approveBorrow = async (borrowId) => {
+    if (!user || user.role !== 'admin') {
+      throw new Error('Only admin can approve borrow requests');
+    }
+
+    try {
+      setIsLoading(true);
+      console.log('Approving borrow request:', borrowId);
+      
+      const response = await borrowAPI.approveBorrow(borrowId);
+      console.log('Approve response:', response);
+      
+      // Refresh borrow requests list
+      await fetchBorrowRequests();
+      
+      return {
+        success: true,
+        message: 'Borrow request approved successfully!'
+      };
+    } catch (error) {
+      console.error('Error approving borrow request:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Reject borrow request (admin only)
+  const rejectBorrow = async (borrowId) => {
+    if (!user || user.role !== 'admin') {
+      throw new Error('Only admin can reject borrow requests');
+    }
+
+    try {
+      setIsLoading(true);
+      console.log('Rejecting borrow request:', borrowId);
+      
+      const response = await borrowAPI.rejectBorrow(borrowId);
+      console.log('Reject response:', response);
+      
+      // Refresh borrow requests list
+      await fetchBorrowRequests();
+      
+      return {
+        success: true,
+        message: 'Borrow request rejected successfully!'
+      };
+    } catch (error) {
+      console.error('Error rejecting borrow request:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Check if a book is currently borrowed by the user
+  const isBookBorrowed = (bookId) => {
+    return borrowedBooks.some(
+      borrow => borrow.book_id === parseInt(bookId) && 
+                (borrow.status === 'pending' || borrow.status === 'approved')
+    );
+  };
+
+  // Get borrow status for a specific book
+  const getBorrowStatus = (bookId) => {
+    const borrow = borrowedBooks.find(
+      borrow => borrow.book_id === parseInt(bookId) && 
+                (borrow.status === 'pending' || borrow.status === 'approved')
+    );
+    return borrow ? borrow.status : null;
+  };
+
+  // Get borrow record for a specific book
+  const getBorrowRecord = (bookId) => {
+    return borrowedBooks.find(
+      borrow => borrow.book_id === parseInt(bookId) && 
+                (borrow.status === 'pending' || borrow.status === 'approved')
+    );
+  };
+
+  const value = {
+    borrowedBooks,
+    borrowRequests,
+    isLoading,
+    borrowBook,
+    returnBook,
+    approveBorrow,
+    rejectBorrow,
+    isBookBorrowed,
+    getBorrowStatus,
+    getBorrowRecord,
+    fetchBorrowedBooks,
+    fetchBorrowRequests
   };
 
   return (
-    <BorrowContext.Provider value={{
-      borrowedBooks,
-      borrowBook,
-      returnBook,
-      approveBorrow,
-      rejectBorrow
-    }}>
+    <BorrowContext.Provider value={value}>
       {children}
     </BorrowContext.Provider>
   );
-}
+};

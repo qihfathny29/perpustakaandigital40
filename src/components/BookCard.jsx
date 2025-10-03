@@ -1,14 +1,14 @@
 import { useState, useRef, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { BorrowContext } from '../context/BorrowContext';
+import { useBorrow } from '../context/BorrowContext';
 import { ReadingContext } from '../context/ReadingContext';
 import PropTypes from 'prop-types';
 import { useInView } from '../hooks/useInView';
 
 function BookCard({ id, title, author, category, available, imageUrl, synopsis, stock }) {
   const { user } = useContext(AuthContext);
-  const { borrowBook } = useContext(BorrowContext);
+  const { borrowBook } = useBorrow();
   const { updateReadingProgress, startReading } = useContext(ReadingContext);
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
@@ -161,24 +161,40 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
   const [durationError, setDurationError] = useState('');
 
   // Modifikasi confirmBorrow agar tidak bisa pinjam jika > 3 hari
-  const confirmBorrow = () => {
+  const confirmBorrow = async () => {
     if (borrowDuration > 3) {
       setDurationError('Durasi peminjaman maksimal 3 hari!');
       setTimeout(() => setDurationError(''), 2500);
       return;
     }
-    const result = borrowBook({
-      id,
-      title,
-      author,
-      category,
-      borrowDate: `${borrowDates.startDate}T${borrowDates.startTime}`,
-      dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
-    }, user);
-
-    if (result) {
+    
+    try {
+      console.log('=== Frontend Borrow Debug ===');
+      console.log('Book ID:', id);
+      console.log('Book ID type:', typeof id);
+      console.log('Book title:', title);
+      console.log('Borrow data:', {
+        id: id,
+        borrowDate: `${borrowDates.startDate}T${borrowDates.startTime}`,
+        dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
+      });
+      
+      await borrowBook({
+        id: id,
+        borrowDate: `${borrowDates.startDate}T${borrowDates.startTime}`,
+        dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
+      });
+      
       setShowBorrowConfirm(false);
       navigate('/dashboard');
+    } catch (error) {
+      console.error('Error borrowing book:', error);
+      
+      // Show user-friendly error message
+      const errorMessage = error.message || 'Terjadi kesalahan saat meminjam buku';
+      alert(errorMessage);
+      
+      setShowBorrowConfirm(false);
     }
   };
 

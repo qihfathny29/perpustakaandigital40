@@ -1,6 +1,7 @@
 import { useState, useContext, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
+import { useBorrow } from '../context/BorrowContext';
 import { booksAPI } from '../utils/api';
 import BookCard from '../components/BookCard';
 import TestimonialSection from '../components/TestimonialSection';
@@ -8,6 +9,13 @@ import { useInView } from '../hooks/useInView';
 
 function BookCatalog() {
   const { user } = useContext(AuthContext);
+  const { borrowedBooks } = useBorrow();
+  
+  // Debug borrowedBooks
+  console.log('BookCatalog - borrowedBooks:', borrowedBooks);
+  console.log('BookCatalog - borrowedBooks type:', typeof borrowedBooks);
+  console.log('BookCatalog - is Array:', Array.isArray(borrowedBooks));
+  
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -36,6 +44,10 @@ function BookCatalog() {
         if (booksResponse.status === 'success') {
           const booksData = booksResponse.data.books || booksResponse.data;
           console.log('BookCatalog - Books data:', booksData);
+          console.log('=== Book IDs and types ===');
+          booksData.forEach((book, index) => {
+            console.log(`Book ${index}: ID=${book.id}, Type=${typeof book.id}, Title=${book.title}`);
+          });
           setBooks(booksData);
           setStats(prev => ({
             ...prev,
@@ -107,15 +119,20 @@ function BookCatalog() {
   }, []);
 
   // ===== Tambahan: Buku Terfavorit =====
-  // Ambil data peminjaman dari localStorage
+  // Ambil data peminjaman dari BorrowContext
   const [favoriteBooks, setFavoriteBooks] = useState([]);
   useEffect(() => {
-    const borrows = JSON.parse(localStorage.getItem('borrowedBooks') || '[]');
+    // Pastikan borrowedBooks adalah array sebelum diproses
+    if (!Array.isArray(borrowedBooks)) {
+      console.warn('borrowedBooks is not an array:', borrowedBooks);
+      return;
+    }
+    
     // Hitung jumlah peminjaman selesai per judul
     const countMap = {};
-    borrows.forEach(b => {
-      if (b.status === 'returned' && b.title) {
-        countMap[b.title] = (countMap[b.title] || 0) + 1;
+    borrowedBooks.forEach(b => {
+      if (b.status === 'returned' && b.book_title) {
+        countMap[b.book_title] = (countMap[b.book_title] || 0) + 1;
       }
     });
     // Urutkan berdasarkan jumlah peminjaman
@@ -134,7 +151,7 @@ function BookCatalog() {
       };
     });
     setFavoriteBooks(favBooks);
-  }, [books]);
+  }, [books, borrowedBooks]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black font-sans text-white">

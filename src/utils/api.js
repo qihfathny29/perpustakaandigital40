@@ -150,6 +150,94 @@ export const booksAPI = {
 // Export utility functions
 export { getToken, setToken, removeToken, apiRequest };
 
+// Borrow API calls
+export const borrowAPI = {
+  // Borrow a book (create borrow request)
+  borrowBook: async (borrowData) => {
+    // Handle both old format (just bookId) and new format (object with id, borrowDate, dueDate)
+    const requestBody = typeof borrowData === 'object' && borrowData.id 
+      ? {
+          bookId: borrowData.id.toString(), // Keep as string to match database
+          request_date: borrowData.borrowDate,
+          due_date: borrowData.dueDate
+        }
+      : {
+          bookId: borrowData.toString() // Keep as string to match database
+        };
+    
+    return await apiRequest('/borrow', {
+      method: 'POST',
+      body: JSON.stringify(requestBody),
+    });
+  },
+  
+  // Get user's borrowed books
+  getBorrowedBooks: async () => {
+    return await apiRequest('/borrow/my-borrows');
+  },
+  
+  // Get all borrow requests (admin only)
+  getAllBorrowRequests: async () => {
+    return await apiRequest('/borrow');
+  },
+  
+  // Approve borrow request (admin only)
+  approveBorrow: async (borrowId) => {
+    return await apiRequest(`/borrow/${borrowId}/approve`, {
+      method: 'PUT',
+    });
+  },
+  
+  // Reject borrow request (admin only)
+  rejectBorrow: async (borrowId) => {
+    return await apiRequest(`/borrow/${borrowId}/reject`, {
+      method: 'PUT',
+    });
+  },
+  
+  // Return book
+  returnBook: async (borrowId) => {
+    return await apiRequest(`/borrow/${borrowId}/return`, {
+      method: 'PUT',
+    });
+  },
+
+  // Legacy functions for compatibility
+  createRequest: async (bookId, requestDate, dueDate) => {
+    return await apiRequest('/borrow', {
+      method: 'POST',
+      body: JSON.stringify({
+        bookId: bookId,
+        request_date: requestDate,
+        due_date: dueDate
+      }),
+    });
+  },
+  
+  getMyBorrows: async () => {
+    return await apiRequest('/borrow/my-borrows');
+  },
+  
+  getAll: async () => {
+    return await apiRequest('/borrow');
+  },
+  
+  approve: async (borrowId) => {
+    return await apiRequest(`/borrow/${borrowId}/approve`, {
+      method: 'PUT',
+    });
+  },
+  
+  reject: async (borrowId, rejectionReason) => {
+    return await apiRequest(`/borrow/${borrowId}/reject`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        rejection_reason: rejectionReason
+      }),
+    });
+  }
+};
+
 // Users API calls
 export const usersAPI = {
   // Get all users with statistics

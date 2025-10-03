@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useContext } from 'react';
 import { AuthContext } from './context/AuthContext';
+import { BorrowProvider } from './context/BorrowContext';
 import BookCatalog from './pages/BookCatalog';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -12,7 +13,7 @@ function App() {
   const { user } = useContext(AuthContext);
 
   return (
-    <>
+    <BorrowProvider>
       <Routes>
         <Route path="/" element={<BookCatalog />} />
         <Route
@@ -53,7 +54,7 @@ function App() {
         />
       </Routes>
       <ChatBotFloatingButton />
-    </>
+    </BorrowProvider>
   );
 }
 
