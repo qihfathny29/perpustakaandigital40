@@ -139,6 +139,11 @@ export const booksAPI = {
   // Get books statistics
   getStats: async () => {
     return await apiRequest('/books/stats');
+  },
+
+  // Get dashboard statistics (books + borrows + users)
+  getDashboardStats: async () => {
+    return await apiRequest('/books/dashboard-stats');
   }
 };
 

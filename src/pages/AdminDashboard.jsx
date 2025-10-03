@@ -24,7 +24,7 @@ function AdminDashboard() {
   const [editingBook, setEditingBook] = useState(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(null);
   const [notification, setNotification] = useState('');
-  const [activeTab, setActiveTab] = useState('books'); // Add this
+  const [activeTab, setActiveTab] = useState('dashboard'); // Default to dashboard
   const [bookRequests, setBookRequests] = useState(() => {
     return JSON.parse(localStorage.getItem('bookRequests') || '[]');
   });
@@ -34,6 +34,13 @@ function AdminDashboard() {
   
   // State untuk books dari API
   const [books, setBooks] = useState([]);
+  
+  // State untuk dashboard statistics
+  const [dashboardStats, setDashboardStats] = useState({
+    books: { total: 0, available: 0, unavailable: 0 },
+    borrows: { total: 0, active: 0, returned: 0, overdue: 0 },
+    users: { total: 0 }
+  });
   
   // Ambil data peminjaman dari localStorage (sementara, nanti juga akan pakai API)
   const [borrows, setBorrows] = useState(() => {
@@ -68,9 +75,21 @@ function AdminDashboard() {
     }
   };
 
-
-
-
+  // Function untuk fetch dashboard stats dari API
+  const fetchDashboardStats = async () => {
+    try {
+      console.log('🔄 Fetching dashboard stats...');
+      const response = await booksAPI.getDashboardStats();
+      console.log('📊 Dashboard stats response:', response);
+      if (response.status === 'success') {
+        setDashboardStats(response.data);
+        console.log('✅ Dashboard stats updated:', response.data);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching dashboard stats:', error);
+      // Keep default stats if API fails
+    }
+  };
 
   // Function untuk fetch books dari API
   const fetchBooks = async () => {
@@ -162,6 +181,9 @@ function AdminDashboard() {
     if (activeTab === 'books') {
       fetchBooks();
     }
+    if (activeTab === 'dashboard') {
+      fetchDashboardStats();
+    }
   }, [activeTab]);
 
   // Sync profile dengan user context
@@ -173,6 +195,11 @@ function AdminDashboard() {
       });
     }
   }, [user]);
+
+  // Initial load dashboard stats
+  useEffect(() => {
+    fetchDashboardStats();
+  }, []);
 
   const handleLogout = () => {
     logout();
@@ -452,11 +479,6 @@ function AdminDashboard() {
     }
   };
 
-  // Fungsi untuk menghitung jumlah peminjaman aktif
-  const getActiveBorrowCount = () => {
-    return borrows.filter(b => b.status === 'borrowed').length;
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-900 to-black text-white">
       {/* Sidebar Drawer for Mobile */}
@@ -635,7 +657,7 @@ function AdminDashboard() {
             </div>
             <div>
               <h3 className="text-gray-200 text-sm mb-1 font-semibold tracking-wide">Total Buku</h3>
-              <p className="text-3xl font-extrabold text-white">{books.length}</p>
+              <p className="text-3xl font-extrabold text-white">{dashboardStats.books.total}</p>
             </div>
           </div>
           <div className="flex items-center bg-gradient-to-br from-green-600/80 to-green-800/80 p-6 rounded-2xl border border-green-700 shadow-lg">
@@ -647,7 +669,7 @@ function AdminDashboard() {
             <div>
               <h3 className="text-gray-200 text-sm mb-1 font-semibold tracking-wide">Buku Tersedia</h3>
               <p className="text-3xl font-extrabold text-white">
-                {books.filter(b => b.available).length}
+                {dashboardStats.books.available}
               </p>
             </div>
           </div>
@@ -660,7 +682,7 @@ function AdminDashboard() {
             <div>
               <h3 className="text-gray-200 text-sm mb-1 font-semibold tracking-wide">Sedang Dipinjam</h3>
               <p className="text-3xl font-extrabold text-white">
-                {getActiveBorrowCount()}
+                {dashboardStats.borrows.active}
               </p>
             </div>
           </div>
