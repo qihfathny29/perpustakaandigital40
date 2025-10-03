@@ -326,6 +326,7 @@ const getBooksStats = async (req, res) => {
                 COUNT(CASE WHEN available = 1 THEN 1 END) as available_books,
                 COUNT(CASE WHEN available = 0 THEN 1 END) as unavailable_books,
                 (SELECT COUNT(DISTINCT category) FROM books) as total_categories
+            FROM books
         `;
 
         const result = await pool.request().query(query);

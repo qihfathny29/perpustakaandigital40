@@ -211,8 +211,80 @@ const getProfile = async (req, res) => {
     }
 };
 
+// Update user profile
+const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { username, email } = req.body;
+
+        // Validation
+        if (!username) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Username is required'
+            });
+        }
+
+        const pool = await getConnection();
+
+        // Check if username already exists (exclude current user)
+        const checkUser = await pool.request()
+            .input('username', username)
+            .input('userId', userId)
+            .query('SELECT id FROM users WHERE username = @username AND id != @userId');
+
+        if (checkUser.recordset.length > 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Username already exists'
+            });
+        }
+
+        // Update user profile
+        const updateQuery = `
+            UPDATE users 
+            SET username = @username
+            WHERE id = @userId
+        `;
+
+        await pool.request()
+            .input('username', username)
+            .input('userId', userId)
+            .query(updateQuery);
+
+        // Get updated user data
+        const result = await pool.request()
+            .input('userId', userId)
+            .query('SELECT id, username, role, created_at FROM users WHERE id = @userId');
+
+        const user = result.recordset[0];
+
+        res.json({
+            status: 'success',
+            message: 'Profile updated successfully',
+            data: {
+                user: {
+                    id: user.id,
+                    username: user.username,
+                    role: user.role,
+                    createdAt: user.created_at
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     register,
     login,
-    getProfile
+    getProfile,
+    updateProfile
 };
