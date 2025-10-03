@@ -2,6 +2,7 @@ import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { books, updateBook, deleteBook, addBook } from '../data/books';
+import { usersAPI } from '../utils/api';
 import Chart from 'chart.js/auto';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -28,11 +29,19 @@ function AdminDashboard() {
   const [bookRequests, setBookRequests] = useState(() => {
     return JSON.parse(localStorage.getItem('bookRequests') || '[]');
   });
-  // Ambil data users dari localStorage
-  const [users, setUsers] = useState(() => {
-    return JSON.parse(localStorage.getItem('users') || '[]');
+  
+  // State untuk users dari API
+  const [users, setUsers] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState({
+    totalUsers: 0,
+    totalBooks: 0,
+    totalBorrowed: 0,
+    totalPending: 0,
+    totalOverdue: 0
   });
-  // Ambil data peminjaman dari localStorage
+  
+  // Ambil data peminjaman dari localStorage (sementara, nanti juga akan pakai API)
   const [borrows, setBorrows] = useState(() => {
     return JSON.parse(localStorage.getItem('borrowedBooks') || '[]');
   });
@@ -55,6 +64,65 @@ function AdminDashboard() {
   const [showSidebar, setShowSidebar] = useState(false);
 
   const categories = ['Fiksi', 'Non-Fiksi', 'Pendidikan', 'Novel'];
+
+  // Function untuk fetch users dari API
+  const fetchUsers = async () => {
+    try {
+      setLoadingUsers(true);
+      const response = await usersAPI.getAll();
+      if (response.status === 'success') {
+        setUsers(response.data.users);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
+      setNotification('Gagal memuat data users');
+      setTimeout(() => setNotification(''), 3000);
+    } finally {
+      setLoadingUsers(false);
+    }
+  };
+
+  // Function untuk fetch dashboard stats
+  const fetchDashboardStats = async () => {
+    try {
+      const response = await usersAPI.getStats();
+      if (response.status === 'success') {
+        setDashboardStats(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard stats:', error);
+    }
+  };
+
+  // Function untuk delete user
+  const handleDeleteUser = async (userId) => {
+    if (!window.confirm('Apakah Anda yakin ingin menghapus user ini?')) {
+      return;
+    }
+
+    try {
+      const response = await usersAPI.delete(userId);
+      if (response.status === 'success') {
+        setNotification('User berhasil dihapus');
+        fetchUsers(); // Refresh data
+      }
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      setNotification('Gagal menghapus user');
+    } finally {
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  // Load data saat component mount atau tab berubah
+  useEffect(() => {
+    if (activeTab === 'users') {
+      fetchUsers();
+    }
+    if (activeTab === 'dashboard') {
+      fetchDashboardStats();
+    }
+  }, [activeTab]);
 
   const handleLogout = () => {
     logout();

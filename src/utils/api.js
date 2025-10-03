@@ -120,3 +120,28 @@ export const booksAPI = {
 
 // Export utility functions
 export { getToken, setToken, removeToken, apiRequest };
+
+// Users API calls
+export const usersAPI = {
+  // Get all users with statistics
+  getAll: async () => {
+    return await apiRequest('/users');
+  },
+  
+  // Get user by ID with detailed info
+  getById: async (id) => {
+    return await apiRequest(`/users/${id}`);
+  },
+  
+  // Delete user
+  delete: async (id) => {
+    return await apiRequest(`/users/${id}`, {
+      method: 'DELETE',
+    });
+  },
+  
+  // Get dashboard statistics
+  getStats: async () => {
+    return await apiRequest('/users/stats');
+  }
+};
