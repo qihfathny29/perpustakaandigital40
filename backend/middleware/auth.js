@@ -12,7 +12,15 @@ const authMiddleware = (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
+        
+        // Normalize the user object - JWT has userId, but we want id
+        req.user = {
+            id: decoded.userId,
+            userId: decoded.userId, // Keep both for compatibility
+            username: decoded.username,
+            role: decoded.role
+        };
+        
         next();
     } catch (error) {
         res.status(401).json({

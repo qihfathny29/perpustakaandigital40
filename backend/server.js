@@ -7,6 +7,7 @@ const { testConnection } = require('./config/database');
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const bookRoutes = require('./routes/books');
+const borrowRoutes = require('./routes/borrow');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -20,6 +21,7 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/books', bookRoutes);
+app.use('/api/borrow', borrowRoutes);
 
 // Basic route untuk test
 app.get('/', (req, res) => {
@@ -31,6 +33,7 @@ app.get('/', (req, res) => {
             auth: '/api/auth',
             users: '/api/users',
             books: '/api/books',
+            borrow: '/api/borrow',
             health: '/health',
             testDb: '/test-db'
         }
