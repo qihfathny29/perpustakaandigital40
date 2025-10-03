@@ -6,6 +6,7 @@ const { testConnection } = require('./config/database');
 // Import routes
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const bookRoutes = require('./routes/books');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -18,6 +19,7 @@ app.use(express.urlencoded({ extended: true }));
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/books', bookRoutes);
 
 // Basic route untuk test
 app.get('/', (req, res) => {
@@ -28,6 +30,7 @@ app.get('/', (req, res) => {
         endpoints: {
             auth: '/api/auth',
             users: '/api/users',
+            books: '/api/books',
             health: '/health',
             testDb: '/test-db'
         }

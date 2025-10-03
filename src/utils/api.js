@@ -86,17 +86,19 @@ export const authAPI = {
   }
 };
 
-// Books API calls (akan dibuat nanti)
+// Books API calls
 export const booksAPI = {
-  // Placeholder for future implementation
+  // Get all books
   getAll: async () => {
     return await apiRequest('/books');
   },
   
+  // Get book by ID
   getById: async (id) => {
     return await apiRequest(`/books/${id}`);
   },
   
+  // Create new book
   create: async (bookData) => {
     return await apiRequest('/books', {
       method: 'POST',
@@ -104,6 +106,7 @@ export const booksAPI = {
     });
   },
   
+  // Update book
   update: async (id, bookData) => {
     return await apiRequest(`/books/${id}`, {
       method: 'PUT',
@@ -111,10 +114,16 @@ export const booksAPI = {
     });
   },
   
+  // Delete book
   delete: async (id) => {
     return await apiRequest(`/books/${id}`, {
       method: 'DELETE',
     });
+  },
+
+  // Get books statistics
+  getStats: async () => {
+    return await apiRequest('/books/stats');
   }
 };
 

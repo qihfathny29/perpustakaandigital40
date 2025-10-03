@@ -1,8 +1,7 @@
 import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { books, updateBook, deleteBook, addBook } from '../data/books';
-import { usersAPI } from '../utils/api';
+import { usersAPI, booksAPI } from '../utils/api';
 import Chart from 'chart.js/auto';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -33,6 +32,11 @@ function AdminDashboard() {
   // State untuk users dari API
   const [users, setUsers] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  
+  // State untuk books dari API
+  const [books, setBooks] = useState([]);
+  const [loadingBooks, setLoadingBooks] = useState(false);
+  
   const [dashboardStats, setDashboardStats] = useState({
     totalUsers: 0,
     totalBooks: 0,
@@ -114,10 +118,98 @@ function AdminDashboard() {
     }
   };
 
+  // Function untuk fetch books dari API
+  const fetchBooks = async () => {
+    try {
+      setLoadingBooks(true);
+      const response = await booksAPI.getAll();
+      if (response.status === 'success') {
+        setBooks(response.data.books);
+      }
+    } catch (error) {
+      console.error('Error fetching books:', error);
+      setNotification('Gagal memuat data buku');
+      setTimeout(() => setNotification(''), 3000);
+    } finally {
+      setLoadingBooks(false);
+    }
+  };
+
+  // Function untuk create book
+  const handleAddBook = async (e) => {
+    e.preventDefault();
+    try {
+      console.log('Attempting to create book with data:', {
+        ...newBook,
+        imageUrl: newBook.imageUrl ? `[Base64 data - ${newBook.imageUrl.length} characters]` : 'No image'
+      });
+      
+      const response = await booksAPI.create(newBook);
+      console.log('Book creation response:', response);
+      
+      if (response.status === 'success') {
+        setShowAddForm(false);
+        setNewBook({
+          title: '',
+          author: '',
+          synopsis: '',
+          category: 'Fiksi',
+          imageUrl: '',
+          stock: 1
+        });
+        setNotification('Buku berhasil ditambahkan!');
+        fetchBooks(); // Refresh data
+      }
+    } catch (error) {
+      console.error('Create book error:', error);
+      setNotification('Gagal menambahkan buku: ' + (error.message || 'Unknown error'));
+    } finally {
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  // Function untuk update book
+  const handleUpdate = async (e) => {
+    e.preventDefault();
+    try {
+      const response = await booksAPI.update(editingBook.id, editingBook);
+      if (response.status === 'success') {
+        setEditingBook(null);
+        setNotification('Buku berhasil diperbarui!');
+        fetchBooks(); // Refresh data
+      }
+    } catch (error) {
+      console.error('Error updating book:', error);
+      setNotification('Gagal memperbarui buku');
+    } finally {
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  // Function untuk delete book
+  const handleDelete = async (bookId) => {
+    try {
+      const response = await booksAPI.delete(bookId);
+      if (response.status === 'success') {
+        setShowConfirmDelete(null);
+        setNotification('Buku berhasil dihapus');
+        fetchBooks(); // Refresh data
+      }
+    } catch (error) {
+      console.error('Error deleting book:', error);
+      setNotification('Gagal menghapus buku');
+    } finally {
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
   // Load data saat component mount atau tab berubah
   useEffect(() => {
     if (activeTab === 'users') {
       fetchUsers();
+    }
+    if (activeTab === 'books') {
+      fetchBooks();
     }
     if (activeTab === 'dashboard') {
       fetchDashboardStats();
@@ -129,46 +221,20 @@ function AdminDashboard() {
     navigate('/login');
   };
 
-  const handleBookSubmit = (e) => {
-    e.preventDefault();
-    addBook(newBook);
-    setShowAddForm(false);
-    setNotification('Buku berhasil ditambahkan!');
-
-    // Hilangkan notifikasi setelah 3 detik
-    setTimeout(() => {
-      setNotification('');
-    }, 3000);
-  };
-
   const handleEdit = (book) => {
     setEditingBook(book);
   };
 
-  const handleUpdate = (e) => {
-    e.preventDefault();
-    updateBook(editingBook.id, editingBook);
-    setEditingBook(null);
-  };
-
-  const handleDelete = (bookId) => {
-    if (deleteBook(bookId)) {
-      setShowConfirmDelete(null);
-      setNotification('Buku berhasil dihapus');
-      setTimeout(() => {
-        setNotification('');
-      }, 3000);
-      window.dispatchEvent(new Event('storage'));
-    }
-  };
-
-  const handleAddBook = (e) => {
-    e.preventDefault();
-    addBook(newBook);
-    setShowAddForm(false);
-    setNewBook({ title: '', author: '', synopsis: '', category: 'Fiksi', imageUrl: '' });
-    setNotification('Buku berhasil ditambahkan!');
-    setTimeout(() => setNotification(''), 3000);
+  // Function untuk handle form reset
+  const resetNewBookForm = () => {
+    setNewBook({ 
+      title: '', 
+      author: '', 
+      synopsis: '', 
+      category: 'Fiksi', 
+      imageUrl: '', 
+      stock: 1 
+    });
   };
 
   const handleRequestAction = (requestId, action) => {
@@ -705,6 +771,25 @@ function AdminDashboard() {
                       <label className="block text-sm font-medium text-gray-300 mb-2">
                         Gambar Buku
                       </label>
+                      
+                      {/* Image Preview */}
+                      {newBook.imageUrl && (
+                        <div className="mb-4">
+                          <img 
+                            src={newBook.imageUrl} 
+                            alt="Preview" 
+                            className="w-32 h-40 object-cover rounded-lg border border-gray-600"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setNewBook({...newBook, imageUrl: ''})}
+                            className="mt-2 text-sm text-red-400 hover:text-red-300"
+                          >
+                            Hapus Gambar
+                          </button>
+                        </div>
+                      )}
+                      
                       <div className="flex items-center justify-center w-full">
                         <label className="w-full flex flex-col items-center justify-center h-32 border-2 border-dashed border-gray-600 rounded-lg cursor-pointer hover:border-red-500 bg-gray-700/50">
                           <div className="flex flex-col items-center justify-center pt-5 pb-6">
@@ -723,8 +808,10 @@ function AdminDashboard() {
                             onChange={(e) => {
                               const file = e.target.files[0];
                               if (file) {
+                                console.log('File selected:', file.name, file.size);
                                 const reader = new FileReader();
                                 reader.onloadend = () => {
+                                  console.log('File read complete, base64 length:', reader.result.length);
                                   setNewBook({...newBook, imageUrl: reader.result});
                                 };
                                 reader.readAsDataURL(file);
