@@ -1,7 +1,7 @@
 import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { usersAPI, booksAPI } from '../utils/api';
+import { usersAPI, booksAPI, authAPI } from '../utils/api';
 import Chart from 'chart.js/auto';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -31,19 +31,9 @@ function AdminDashboard() {
   
   // State untuk users dari API
   const [users, setUsers] = useState([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
   
   // State untuk books dari API
   const [books, setBooks] = useState([]);
-  const [loadingBooks, setLoadingBooks] = useState(false);
-  
-  const [dashboardStats, setDashboardStats] = useState({
-    totalUsers: 0,
-    totalBooks: 0,
-    totalBorrowed: 0,
-    totalPending: 0,
-    totalOverdue: 0
-  });
   
   // Ambil data peminjaman dari localStorage (sementara, nanti juga akan pakai API)
   const [borrows, setBorrows] = useState(() => {
@@ -51,14 +41,9 @@ function AdminDashboard() {
   });
 
   // State untuk profile admin
-  const [profile, setProfile] = useState(() => {
-    const saved = localStorage.getItem('adminProfile');
-    return saved
-      ? JSON.parse(saved)
-      : {
-          fullName: user?.username || 'Admin',
-          email: 'admin@example.com',
-        };
+  const [profile, setProfile] = useState({
+    fullName: user?.username || 'Admin',
+    email: user?.email || 'admin@example.com',
   });
   const [profileImage, setProfileImage] = useState(() => {
     return localStorage.getItem('adminProfileImage') || null;
@@ -72,7 +57,6 @@ function AdminDashboard() {
   // Function untuk fetch users dari API
   const fetchUsers = async () => {
     try {
-      setLoadingUsers(true);
       const response = await usersAPI.getAll();
       if (response.status === 'success') {
         setUsers(response.data.users);
@@ -81,47 +65,16 @@ function AdminDashboard() {
       console.error('Error fetching users:', error);
       setNotification('Gagal memuat data users');
       setTimeout(() => setNotification(''), 3000);
-    } finally {
-      setLoadingUsers(false);
     }
   };
 
-  // Function untuk fetch dashboard stats
-  const fetchDashboardStats = async () => {
-    try {
-      const response = await usersAPI.getStats();
-      if (response.status === 'success') {
-        setDashboardStats(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
-    }
-  };
 
-  // Function untuk delete user
-  const handleDeleteUser = async (userId) => {
-    if (!window.confirm('Apakah Anda yakin ingin menghapus user ini?')) {
-      return;
-    }
 
-    try {
-      const response = await usersAPI.delete(userId);
-      if (response.status === 'success') {
-        setNotification('User berhasil dihapus');
-        fetchUsers(); // Refresh data
-      }
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      setNotification('Gagal menghapus user');
-    } finally {
-      setTimeout(() => setNotification(''), 3000);
-    }
-  };
+
 
   // Function untuk fetch books dari API
   const fetchBooks = async () => {
     try {
-      setLoadingBooks(true);
       const response = await booksAPI.getAll();
       if (response.status === 'success') {
         setBooks(response.data.books);
@@ -130,8 +83,6 @@ function AdminDashboard() {
       console.error('Error fetching books:', error);
       setNotification('Gagal memuat data buku');
       setTimeout(() => setNotification(''), 3000);
-    } finally {
-      setLoadingBooks(false);
     }
   };
 
@@ -211,10 +162,17 @@ function AdminDashboard() {
     if (activeTab === 'books') {
       fetchBooks();
     }
-    if (activeTab === 'dashboard') {
-      fetchDashboardStats();
-    }
   }, [activeTab]);
+
+  // Sync profile dengan user context
+  useEffect(() => {
+    if (user) {
+      setProfile({
+        fullName: user.username || 'Admin',
+        email: user.email || 'admin@example.com',
+      });
+    }
+  }, [user]);
 
   const handleLogout = () => {
     logout();
@@ -225,17 +183,7 @@ function AdminDashboard() {
     setEditingBook(book);
   };
 
-  // Function untuk handle form reset
-  const resetNewBookForm = () => {
-    setNewBook({ 
-      title: '', 
-      author: '', 
-      synopsis: '', 
-      category: 'Fiksi', 
-      imageUrl: '', 
-      stock: 1 
-    });
-  };
+
 
   const handleRequestAction = (requestId, action) => {
     setBookRequests(requests => 
@@ -475,12 +423,33 @@ function AdminDashboard() {
   };
 
   // Handle profile form submit
-  const handleProfileSubmit = (e) => {
+  const handleProfileSubmit = async (e) => {
     e.preventDefault();
-    localStorage.setItem('adminProfile', JSON.stringify(profile));
-    setIsEditingProfile(false);
-    setProfileSuccess(true);
-    setTimeout(() => setProfileSuccess(false), 2000);
+    
+    try {
+      const response = await authAPI.updateProfile({
+        username: profile.fullName
+      });
+      
+      if (response.status === 'success') {
+        setIsEditingProfile(false);
+        setProfileSuccess(true);
+        setTimeout(() => setProfileSuccess(false), 2000);
+        
+        // Update local profile state with new data from server
+        setProfile(prev => ({
+          ...prev,
+          fullName: response.data.user.username
+        }));
+        
+        setNotification('Profile berhasil diperbarui!');
+        setTimeout(() => setNotification(''), 3000);
+      }
+    } catch (error) {
+      console.error('Update profile error:', error);
+      setNotification('Gagal memperbarui profile: ' + error.message);
+      setTimeout(() => setNotification(''), 3000);
+    }
   };
 
   // Fungsi untuk menghitung jumlah peminjaman aktif
@@ -809,12 +778,44 @@ function AdminDashboard() {
                               const file = e.target.files[0];
                               if (file) {
                                 console.log('File selected:', file.name, file.size);
-                                const reader = new FileReader();
-                                reader.onloadend = () => {
-                                  console.log('File read complete, base64 length:', reader.result.length);
-                                  setNewBook({...newBook, imageUrl: reader.result});
+                                
+                                // Compress image before converting to base64
+                                const canvas = document.createElement('canvas');
+                                const ctx = canvas.getContext('2d');
+                                const img = new Image();
+                                
+                                img.onload = () => {
+                                  // Set max dimensions
+                                  const maxWidth = 800;
+                                  const maxHeight = 1200;
+                                  
+                                  let { width, height } = img;
+                                  
+                                  // Calculate new dimensions
+                                  if (width > height) {
+                                    if (width > maxWidth) {
+                                      height = (height * maxWidth) / width;
+                                      width = maxWidth;
+                                    }
+                                  } else {
+                                    if (height > maxHeight) {
+                                      width = (width * maxHeight) / height;
+                                      height = maxHeight;
+                                    }
+                                  }
+                                  
+                                  canvas.width = width;
+                                  canvas.height = height;
+                                  
+                                  // Draw and compress
+                                  ctx.drawImage(img, 0, 0, width, height);
+                                  const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7); // 70% quality
+                                  
+                                  console.log('Original size:', file.size, 'Compressed base64 length:', compressedBase64.length);
+                                  setNewBook({...newBook, imageUrl: compressedBase64});
                                 };
-                                reader.readAsDataURL(file);
+                                
+                                img.src = URL.createObjectURL(file);
                               }
                             }}
                           />

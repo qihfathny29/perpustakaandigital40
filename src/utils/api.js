@@ -79,6 +79,21 @@ export const authAPI = {
     return await apiRequest('/auth/profile');
   },
 
+  // Update user profile
+  updateProfile: async (profileData) => {
+    const response = await apiRequest('/auth/profile', {
+      method: 'PUT',
+      body: JSON.stringify(profileData),
+    });
+    
+    if (response.status === 'success') {
+      // Update localStorage user data
+      localStorage.setItem('user', JSON.stringify(response.data.user));
+    }
+    
+    return response;
+  },
+
   // Logout user
   logout: () => {
     removeToken();

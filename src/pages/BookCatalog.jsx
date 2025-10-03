@@ -1,7 +1,7 @@
 import { useState, useContext, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { books } from '../data/books';
+import { booksAPI } from '../utils/api';
 import BookCard from '../components/BookCard';
 import TestimonialSection from '../components/TestimonialSection';
 import { useInView } from '../hooks/useInView';
@@ -11,8 +11,47 @@ function BookCatalog() {
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [books, setBooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    totalBooks: 0,
+    totalUsers: 0,
+    totalReviews: 0
+  });
   const searchRef = useRef(null);
   const categoryRef = useRef(null); // Add this ref
+
+  // Fetch books dan statistics dari API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [booksResponse] = await Promise.all([
+          booksAPI.getAll(),
+          booksAPI.getStats ? booksAPI.getStats() : Promise.resolve({ data: { totalBooks: 0, totalUsers: 0, totalReviews: 0 } })
+        ]);
+        
+        console.log('BookCatalog - API Response:', booksResponse);
+        
+        if (booksResponse.status === 'success') {
+          const booksData = booksResponse.data.books || booksResponse.data;
+          console.log('BookCatalog - Books data:', booksData);
+          setBooks(booksData);
+          setStats(prev => ({
+            ...prev,
+            totalBooks: booksData.length
+          }));
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setBooks([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Daftar kategori yang tersedia
   const categories = ['Semua', 'Fiksi', 'Non-Fiksi', 'Pendidikan', 'Novel'];
@@ -243,17 +282,17 @@ function BookCatalog() {
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <div className="p-6 bg-gray-900 shadow-lg rounded-lg text-center hover:scale-105 duration-300 border border-gray-800">
-            <span className="text-4xl font-extrabold text-red-500">10K+</span>
+            <span className="text-4xl font-extrabold text-red-500">{loading ? '...' : stats.totalBooks}</span>
             <h3 className="mt-4 text-xl font-semibold text-gray-100">Buku Tersedia</h3>
             <p className="mt-2 text-gray-400">Koleksi buku digital yang terus bertambah.</p>
           </div>
           <div className="p-6 bg-gray-900 shadow-lg rounded-lg text-center hover:scale-105 duration-300 border border-gray-800">
-            <span className="text-4xl font-extrabold text-red-500">5K+</span>
+            <span className="text-4xl font-extrabold text-red-500">{loading ? '...' : '5K+'}</span>
             <h3 className="mt-4 text-xl font-semibold text-gray-100">Pengguna Terdaftar</h3>
             <p className="mt-2 text-gray-400">Bergabunglah dengan komunitas pembaca kami.</p>
           </div>
           <div className="p-6 bg-gray-900 shadow-lg rounded-lg text-center hover:scale-105 duration-300 border border-gray-800">
-            <span className="text-4xl font-extrabold text-red-500">1K+</span>
+            <span className="text-4xl font-extrabold text-red-500">{loading ? '...' : '1K+'}</span>
             <h3 className="mt-4 text-xl font-semibold text-gray-100">Ulasan Positif</h3>
             <p className="mt-2 text-gray-400">Dari pengguna yang puas dengan layanan kami.</p>
           </div>
@@ -401,7 +440,19 @@ function BookCatalog() {
           Koleksi Terbaru
         </h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {filteredBooks.length > 0 ? (
+          {loading ? (
+            // Loading skeleton
+            Array.from({ length: 8 }).map((_, index) => (
+              <div key={index} className="bg-gray-900 rounded-lg shadow-lg animate-pulse">
+                <div className="h-64 bg-gray-800 rounded-t-lg"></div>
+                <div className="p-4 space-y-3">
+                  <div className="h-4 bg-gray-800 rounded w-3/4"></div>
+                  <div className="h-3 bg-gray-800 rounded w-1/2"></div>
+                  <div className="h-8 bg-gray-800 rounded"></div>
+                </div>
+              </div>
+            ))
+          ) : filteredBooks.length > 0 ? (
             filteredBooks.map((book) => (
               <BookCard
                 key={book.id}
