@@ -3,6 +3,9 @@ const express = require('express');
 const cors = require('cors');
 const { testConnection } = require('./config/database');
 
+// Import routes
+const authRoutes = require('./routes/auth');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -11,12 +14,20 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Routes
+app.use('/api/auth', authRoutes);
+
 // Basic route untuk test
 app.get('/', (req, res) => {
     res.json({
         message: '🚀 Perpustakaan Digital API is running!',
         status: 'success',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            auth: '/api/auth',
+            health: '/health',
+            testDb: '/test-db'
+        }
     });
 });
 
@@ -51,16 +62,18 @@ app.get('/health', (req, res) => {
 // Start server
 async function startServer() {
     try {
-        // Test database connection first
         console.log('🔄 Testing database connection...');
         await testConnection();
         
-        // Start server
         app.listen(PORT, () => {
             console.log('🚀 Server is running!');
             console.log(`📍 Local: http://localhost:${PORT}`);
             console.log(`🗃️  Database: ${process.env.DB_DATABASE}`);
             console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
+            console.log('\n📋 Available endpoints:');
+            console.log(`   POST http://localhost:${PORT}/api/auth/register`);
+            console.log(`   POST http://localhost:${PORT}/api/auth/login`);
+            console.log(`   GET  http://localhost:${PORT}/api/auth/profile`);
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error.message);
@@ -68,11 +81,9 @@ async function startServer() {
     }
 }
 
-// Handle unhandled promise rejections
 process.on('unhandledRejection', (err) => {
     console.error('Unhandled Promise Rejection:', err);
     process.exit(1);
 });
 
-// Start the server
 startServer();
