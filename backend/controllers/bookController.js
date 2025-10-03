@@ -353,11 +353,86 @@ const getBooksStats = async (req, res) => {
     }
 };
 
+// Get dashboard statistics (books + borrow stats)
+const getDashboardStats = async (req, res) => {
+    try {
+        const pool = await getConnection();
+
+        // Get book stats
+        const bookStatsQuery = `
+            SELECT 
+                COUNT(*) as total_books,
+                SUM(stock) as total_stock,
+                COUNT(CASE WHEN available = 1 THEN 1 END) as available_books,
+                COUNT(CASE WHEN available = 0 THEN 1 END) as unavailable_books,
+                (SELECT COUNT(DISTINCT category) FROM books) as total_categories
+            FROM books
+        `;
+
+        // Get borrow stats
+        const borrowStatsQuery = `
+            SELECT 
+                COUNT(*) as total_borrows,
+                COUNT(CASE WHEN status = 'borrowed' THEN 1 END) as active_borrows,
+                COUNT(CASE WHEN status = 'returned' THEN 1 END) as returned_borrows,
+                COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_borrows
+            FROM borrowed_books
+        `;
+
+        // Get user stats
+        const userStatsQuery = `
+            SELECT COUNT(*) as total_users
+            FROM users
+        `;
+
+        const [bookResult, borrowResult, userResult] = await Promise.all([
+            pool.request().query(bookStatsQuery),
+            pool.request().query(borrowStatsQuery),
+            pool.request().query(userStatsQuery)
+        ]);
+
+        const bookStats = bookResult.recordset[0];
+        const borrowStats = borrowResult.recordset[0];
+        const userStats = userResult.recordset[0];
+
+        res.json({
+            status: 'success',
+            data: {
+                books: {
+                    total: bookStats.total_books || 0,
+                    available: bookStats.available_books || 0,
+                    unavailable: bookStats.unavailable_books || 0,
+                    totalStock: bookStats.total_stock || 0,
+                    categories: bookStats.total_categories || 0
+                },
+                borrows: {
+                    total: borrowStats.total_borrows || 0,
+                    active: borrowStats.active_borrows || 0,
+                    returned: borrowStats.returned_borrows || 0,
+                    overdue: borrowStats.overdue_borrows || 0
+                },
+                users: {
+                    total: userStats.total_users || 0
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Get dashboard stats error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getAllBooks,
     getBookById,
     createBook,
     updateBook,
     deleteBook,
-    getBooksStats
+    getBooksStats,
+    getDashboardStats
 };

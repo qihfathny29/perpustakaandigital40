@@ -5,7 +5,8 @@ const {
     createBook, 
     updateBook, 
     deleteBook, 
-    getBooksStats 
+    getBooksStats,
+    getDashboardStats
 } = require('../controllers/bookController');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 
@@ -14,6 +15,7 @@ const router = express.Router();
 // Public routes (untuk student bisa lihat katalog)
 router.get('/', getAllBooks);
 router.get('/stats', getBooksStats);
+router.get('/dashboard-stats', getDashboardStats); // New endpoint for admin dashboard
 router.get('/:id', getBookById);
 
 // Protected routes - Admin/Petugas only
