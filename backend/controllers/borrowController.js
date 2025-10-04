@@ -345,12 +345,14 @@ const rejectBorrowRequest = async (req, res) => {
 const returnBook = async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user.userId;
+        const userRole = req.user.role;
         const pool = await getConnection();
         
-        // Get borrowed book
+        // Get borrowed book by borrow_id (not id)
         const borrowResult = await pool.request()
-            .input('id', id)
-            .query('SELECT * FROM borrowed_books WHERE id = @id AND status = \'borrowed\'');
+            .input('borrowId', id) // id parameter is actually borrow_id from frontend
+            .query('SELECT * FROM borrowed_books WHERE borrow_id = @borrowId AND status = \'borrowed\'');
             
         if (borrowResult.recordset.length === 0) {
             return res.status(404).json({
@@ -361,19 +363,27 @@ const returnBook = async (req, res) => {
         
         const borrow = borrowResult.recordset[0];
         
+        // Check if user owns this borrow (unless admin/petugas)
+        if (userRole !== 'admin' && userRole !== 'petugas' && borrow.user_id !== userId) {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Anda hanya bisa mengembalikan buku yang Anda pinjam sendiri'
+            });
+        }
+        
         // Start transaction
         const transaction = pool.transaction();
         await transaction.begin();
         
         try {
-            // Update borrow status to returned
+            // Update borrow status to returned using borrow_id
             await transaction.request()
-                .input('id', id)
+                .input('borrowId', id) // id parameter is actually borrow_id from frontend
                 .input('returnDate', new Date())
                 .query(`
                     UPDATE borrowed_books 
                     SET status = 'returned', return_date = @returnDate, updated_at = GETDATE()
-                    WHERE id = @id
+                    WHERE borrow_id = @borrowId
                 `);
                 
             // Increase book stock
