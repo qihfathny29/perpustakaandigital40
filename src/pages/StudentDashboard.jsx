@@ -5,7 +5,26 @@ import { ReadingContext } from '../context/ReadingContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { books } from '../data/books';
 import BookCard from '../components/BookCard';
-import { userAPI } from '../utils/api';
+import { userAPI, requestAPI, booksAPI } from '../utils/api';
+
+// Utility function untuk format tanggal Indonesia
+const formatDate = (dateString) => {
+  if (!dateString) return 'Invalid Date';
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric'
+    });
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Invalid Date';
+  }
+};
 
 function StudentDashboard() {
   const { user, logout } = useContext(AuthContext);
@@ -23,13 +42,11 @@ function StudentDashboard() {
   const [selectedBook, setSelectedBook] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showRequestModal, setShowRequestModal] = useState(false);
-  const [userRequests, setUserRequests] = useState(() => {
-    const saved = localStorage.getItem(`bookRequests_${user?.username}`);
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [userRequests, setUserRequests] = useState([]);
   const [showOverdueModal, setShowOverdueModal] = useState(false);
   const [overdueBooks, setOverdueBooks] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [availableBooks, setAvailableBooks] = useState([]); // Buku dari database
 
   // State untuk profile - akan diambil dari API
   const [profileImage, setProfileImage] = useState(null);
@@ -78,6 +95,50 @@ function StudentDashboard() {
 
     loadProfile();
   }, [user]);
+
+  // Load user's book requests
+  useEffect(() => {
+    const loadUserRequests = async () => {
+      if (!user) return;
+      
+      try {
+        console.log('Loading user requests for user:', user);
+        const response = await requestAPI.getMyRequests();
+        console.log('User requests response:', response);
+        
+        if (response.status === 'success') {
+          console.log('Setting user requests:', response.data.requests);
+          setUserRequests(response.data.requests);
+        }
+      } catch (error) {
+        console.error('Error loading user requests:', error);
+        setUserRequests([]);
+      }
+    };
+
+    loadUserRequests();
+  }, [user]);
+
+  // Load available books from database
+  useEffect(() => {
+    const loadBooks = async () => {
+      try {
+        console.log('Loading books from database...');
+        const response = await booksAPI.getAll();
+        console.log('Books response:', response);
+        
+        if (response.status === 'success') {
+          console.log('Setting available books:', response.data.books);
+          setAvailableBooks(response.data.books || []);
+        }
+      } catch (error) {
+        console.error('Error loading books:', error);
+        setAvailableBooks([]);
+      }
+    };
+
+    loadBooks();
+  }, []);
 
   // Handle image change - upload ke server
   const handleImageChange = async (e) => {
@@ -198,8 +259,8 @@ function StudentDashboard() {
   // Get user's borrowed books (no need to filter since /my-borrows already returns user-specific data)
   const userBorrowedBooks = borrowedBooks;
   
-  // Get active borrows (status === 'approved' or 'pending')
-  const activeBorrows = userBorrowedBooks.filter(book => book.status === 'approved' || book.status === 'pending');
+  // Get active borrows (status === 'borrowed' or 'pending')
+  const activeBorrows = userBorrowedBooks.filter(book => book.status === 'borrowed' || book.status === 'pending');
   
   // Get returned books (status === 'returned')
   const returnedBooks = userBorrowedBooks.filter(book => book.status === 'returned');
@@ -339,7 +400,7 @@ function StudentDashboard() {
   useEffect(() => {
     // Recalculate derived values inside useEffect to avoid dependency issues
     const userBorrowedBooks = borrowedBooks; // No need to filter since /my-borrows already returns user-specific data
-    const activeBorrows = userBorrowedBooks.filter(book => book.status === 'approved' || book.status === 'pending');
+    const activeBorrows = userBorrowedBooks.filter(book => book.status === 'borrowed' || book.status === 'pending');
     const returnedBooks = userBorrowedBooks.filter(book => book.status === 'returned');
 
     // Calculate statistics
@@ -403,28 +464,36 @@ function StudentDashboard() {
     refreshReadingHistory();
   }, [readingHistory, updateReadingProgress]);
 
-  // Add request book function
-  const handleRequestBook = (book) => {
-    const newRequest = {
-      id: Date.now(),
-      userId: user.username,
-      bookId: book.id,
-      bookTitle: book.title,
-      requestDate: new Date().toISOString(),
-      status: 'pending'
-    };
+  // Add request book function - menggunakan API
+  const handleRequestBook = async (book) => {
+    try {
+      setLoading(true);
+      
+      const requestData = {
+        bookTitle: book.title,
+        author: book.author,
+        reason: '' // bisa ditambahkan input reason di modal nanti
+      };
 
-    setUserRequests(prev => [...prev, newRequest]);
-    localStorage.setItem(`bookRequests_${user.username}`, JSON.stringify([...userRequests, newRequest]));
-    
-    // Update global requests in localStorage
-    const allRequests = JSON.parse(localStorage.getItem('bookRequests') || '[]');
-    allRequests.push(newRequest);
-    localStorage.setItem('bookRequests', JSON.stringify(allRequests));
-    
-    setShowRequestModal(false);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+      const response = await requestAPI.create(requestData);
+      
+      if (response.status === 'success') {
+        // Refresh user requests
+        const updatedResponse = await requestAPI.getMyRequests();
+        if (updatedResponse.status === 'success') {
+          setUserRequests(updatedResponse.data.requests);
+        }
+        
+        setShowRequestModal(false);
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 3000);
+      }
+    } catch (error) {
+      console.error('Error creating book request:', error);
+      alert('Gagal membuat request buku: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Replace the 'request' tab content
@@ -450,26 +519,34 @@ function StudentDashboard() {
             </tr>
           </thead>
           <tbody>
-            {userRequests.map(request => (
-              <tr key={request.id} className="border-b border-gray-700">
-                <td className="py-3">{request.bookTitle}</td>
-                <td className="py-3">
-                  {new Date(request.requestDate).toLocaleDateString()}
-                </td>
-                <td className="py-3">
-                  <span className={`px-2 py-1 rounded-full text-xs ${
-                    request.status === 'pending'
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : request.status === 'approved'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-red-100 text-red-800'
-                  }`}>
-                    {request.status === 'pending' ? 'Menunggu' :
-                     request.status === 'approved' ? 'Disetujui' : 'Ditolak'}
-                  </span>
+            {userRequests.length === 0 ? (
+              <tr>
+                <td colSpan="3" className="py-6 text-center text-gray-500">
+                  Belum ada request buku
                 </td>
               </tr>
-            ))}
+            ) : (
+              userRequests.map(request => (
+                <tr key={request.id} className="border-b border-gray-700">
+                  <td className="py-3">{request.bookTitle}</td>
+                  <td className="py-3">
+                    {formatDate(request.createdAt)}
+                  </td>
+                  <td className="py-3">
+                    <span className={`px-2 py-1 rounded-full text-xs ${
+                      request.status === 'pending'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : request.status === 'approved'
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {request.status === 'pending' ? 'Menunggu' :
+                       request.status === 'approved' ? 'Disetujui' : 'Ditolak'}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
@@ -1151,13 +1228,13 @@ function StudentDashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              {books.filter(book => book.stock === 0).map(book => (
+              {availableBooks.filter(book => book.stock === 0).map(book => (
                 <div key={book.id} 
                   className="bg-gray-700/50 rounded-lg overflow-hidden border border-gray-600 hover:border-red-500 transition-colors cursor-pointer"
                   onClick={() => handleRequestBook(book)}
                 >
                   <img
-                    src={book.imageUrl}
+                    src={book.imageUrl || `https://source.unsplash.com/random/400x600/?book,${book.title}`}
                     alt={book.title}
                     className="w-full h-48 object-cover"
                   />
@@ -1170,6 +1247,11 @@ function StudentDashboard() {
                   </div>
                 </div>
               ))}
+              {availableBooks.filter(book => book.stock === 0).length === 0 && (
+                <div className="col-span-full text-center text-gray-500 py-8">
+                  Tidak ada buku yang habis stok untuk direquest
+                </div>
+              )}
             </div>
           </div>
         </div>

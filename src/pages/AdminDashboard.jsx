@@ -1,16 +1,35 @@
 import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { usersAPI, booksAPI, authAPI } from '../utils/api';
+import { usersAPI, booksAPI, authAPI, requestAPI } from '../utils/api';
 import Chart from 'chart.js/auto';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { useBorrow } from '../context/BorrowContext';
 
+// Utility function untuk format tanggal Indonesia
+const formatDate = (dateString) => {
+  if (!dateString) return 'Invalid Date';
+  
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return 'Invalid Date';
+    
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric'
+    });
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Invalid Date';
+  }
+};
+
 function AdminDashboard() {
   const { user, logout } = useContext(AuthContext);
-  const { borrowedBooks, approveBorrow, rejectBorrow } = useBorrow();
+  const { borrowRequests, approveBorrow, rejectBorrow } = useBorrow();
   const navigate = useNavigate();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newBook, setNewBook] = useState({
@@ -25,9 +44,7 @@ function AdminDashboard() {
   const [showConfirmDelete, setShowConfirmDelete] = useState(null);
   const [notification, setNotification] = useState('');
   const [activeTab, setActiveTab] = useState('dashboard'); // Default to dashboard
-  const [bookRequests, setBookRequests] = useState(() => {
-    return JSON.parse(localStorage.getItem('bookRequests') || '[]');
-  });
+  const [bookRequests, setBookRequests] = useState([]); // Dari API, bukan localStorage
   
   // State untuk users dari API
   const [users, setUsers] = useState([]);
@@ -196,6 +213,26 @@ function AdminDashboard() {
     fetchDashboardStats();
   }, []);
 
+  // Fetch book requests dari API
+  useEffect(() => {
+    const fetchBookRequests = async () => {
+      if (!user || user.role !== 'admin') return;
+      
+      try {
+        const response = await requestAPI.getAll();
+        if (response.status === 'success') {
+          console.log('📊 Book requests data:', response.data.requests);
+          setBookRequests(response.data.requests || []);
+        }
+      } catch (error) {
+        console.error('Error fetching book requests:', error);
+        setBookRequests([]);
+      }
+    };
+
+    fetchBookRequests();
+  }, [user]);
+
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -207,33 +244,35 @@ function AdminDashboard() {
 
 
 
-  const handleRequestAction = (requestId, action) => {
-    setBookRequests(requests => 
-      requests.map(request => {
-        if (request.id === requestId) {
-          const newStatus = action === 'approve' ? 'approved' : 'rejected';
-          
-          // Update user's requests
-          const userRequests = JSON.parse(localStorage.getItem(`bookRequests_${request.userId}`) || '[]');
-          const updatedUserRequests = userRequests.map(r => 
-            r.id === requestId ? {...r, status: newStatus} : r
-          );
-          localStorage.setItem(`bookRequests_${request.userId}`, JSON.stringify(updatedUserRequests));
-          
-          // Update global requests
-          const newRequest = {...request, status: newStatus};
-          localStorage.setItem('bookRequests', JSON.stringify(
-            requests.map(r => r.id === requestId ? newRequest : r)
-          ));
-          
-          return newRequest;
-        }
-        return request;
-      })
-    );
-
-    setNotification(`Request berhasil ${action === 'approve' ? 'disetujui' : 'ditolak'}!`);
-    setTimeout(() => setNotification(''), 3000);
+  const handleRequestAction = async (requestId, action) => {
+    try {
+      console.log(`🔄 Processing ${action} for request ID: ${requestId}`);
+      
+      const status = action === 'approve' ? 'approved' : 'rejected';
+      const response = await requestAPI.updateStatus(requestId, status);
+      
+      if (response.status === 'success') {
+        console.log('✅ Request status updated:', response.data);
+        
+        // Update state locally untuk UI responsiveness
+        setBookRequests(requests => 
+          requests.map(request => 
+            request.id === requestId 
+              ? {...request, status: status}
+              : request
+          )
+        );
+        
+        setNotification(`Request berhasil ${action === 'approve' ? 'disetujui' : 'ditolak'}!`);
+        setTimeout(() => setNotification(''), 3000);
+      } else {
+        throw new Error(response.message || 'Failed to update request status');
+      }
+    } catch (error) {
+      console.error('Error updating request status:', error);
+      setNotification('Gagal memproses request. Silakan coba lagi.');
+      setTimeout(() => setNotification(''), 3000);
+    }
   };
 
   // Untuk update data jika ada perubahan di localStorage
@@ -247,14 +286,14 @@ function AdminDashboard() {
 
   // Fungsi untuk statistik peminjaman siswa
   const getStudentStats = (username) => {
-    const userBorrows = borrowedBooks.filter(b => b.user_id === username);
+    const userBorrows = borrowRequests.filter(b => b.user?.username === username);
     const total = userBorrows.length;
-    const active = userBorrows.filter(b => b.status === 'approved').length;
-    const overdue = userBorrows.filter(b => b.status === 'approved' && new Date(b.due_date) < new Date()).length;
+    const active = userBorrows.filter(b => b.status === 'borrowed').length;
+    const overdue = userBorrows.filter(b => b.status === 'borrowed' && new Date(b.dueDate) < new Date()).length;
     // Hitung buku favorit
     const countMap = {};
     userBorrows.forEach(b => {
-      if (b.book_title) countMap[b.book_title] = (countMap[b.book_title] || 0) + 1;
+      if (b.title) countMap[b.title] = (countMap[b.title] || 0) + 1;
     });
     let fav = 'Belum ada';
     let max = 0;
@@ -991,18 +1030,18 @@ function AdminDashboard() {
                     </tr>
                   </thead>
                   <tbody className="bg-gray-800/30 divide-y divide-gray-700">
-                    {borrowedBooks.map((borrow) => (
+                    {borrowRequests.map((borrow) => (
                       <tr key={borrow.id}>
-                        <td className="px-6 py-4 whitespace-nowrap">{borrow.username}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">{borrow.book_title}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">{new Date(borrow.borrow_date).toLocaleDateString()}</td>
-                        <td className="px-6 py-4 whitespace-nowrap">{new Date(borrow.due_date).toLocaleDateString()}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{borrow.user?.username}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{borrow.title}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{new Date(borrow.borrowDate).toLocaleDateString()}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">{new Date(borrow.dueDate).toLocaleDateString()}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {borrow.status === 'pending' ? (
                             <span className="px-3 py-1 bg-yellow-100 text-yellow-800 rounded-full text-sm">
                               Menunggu Persetujuan
                             </span>
-                          ) : borrow.status === 'approved' ? (
+                          ) : borrow.status === 'borrowed' ? (
                             <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
                               Dipinjam
                             </span>
@@ -1113,19 +1152,16 @@ function AdminDashboard() {
                   </thead>
                   <tbody className="bg-gray-800/30 divide-y divide-gray-700">
                     {bookRequests.map((request) => {
-                      // Cari user dari daftar users
-                      const userData = users.find(u => u.username === request.userId);
-                      // Ambil nama lengkap dari profile jika ada
-                      const userProfile = userData
-                        ? JSON.parse(localStorage.getItem(`userProfile_${userData.username}`) || '{}')
-                        : {};
-                      const displayName = userProfile.fullName || userData?.username || request.userId;
+                      // Cari user dari daftar users berdasarkan ID
+                      const userData = users.find(u => u.id === request.userId);
+                      // Gunakan username dari response atau fallback ke userData
+                      const displayName = request.username || userData?.username || `User ID: ${request.userId}`;
                       return (
                         <tr key={request.id} className="hover:bg-gray-700/50">
                           <td className="px-6 py-4 whitespace-nowrap">{displayName}</td>
                           <td className="px-6 py-4 whitespace-nowrap">{request.bookTitle}</td>
                           <td className="px-6 py-4 whitespace-nowrap">
-                            {new Date(request.requestDate).toLocaleString()}
+                            {formatDate(request.createdAt)}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${

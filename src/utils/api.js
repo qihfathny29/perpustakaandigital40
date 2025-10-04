@@ -307,3 +307,39 @@ export const userAPI = {
     return await apiRequest('/users/stats');
   }
 };
+
+// Book Request API calls
+export const requestAPI = {
+  // Create new book request
+  create: async (requestData) => {
+    return await apiRequest('/requests', {
+      method: 'POST',
+      body: JSON.stringify(requestData),
+    });
+  },
+
+  // Get user's requests
+  getMyRequests: async () => {
+    return await apiRequest('/requests/my-requests');
+  },
+
+  // Get all requests (Admin/Petugas only)
+  getAll: async () => {
+    return await apiRequest('/requests');
+  },
+
+  // Update request status (Admin/Petugas only)
+  updateStatus: async (requestId, status, notes = null) => {
+    return await apiRequest(`/requests/${requestId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status, notes }),
+    });
+  },
+
+  // Delete request
+  delete: async (requestId) => {
+    return await apiRequest(`/requests/${requestId}`, {
+      method: 'DELETE',
+    });
+  }
+};

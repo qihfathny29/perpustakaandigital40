@@ -48,10 +48,13 @@ export const BorrowProvider = ({ children }) => {
     
     try {
       setIsLoading(true);
+      console.log('Fetching borrow requests for admin...');
       const response = await borrowAPI.getAllBorrowRequests();
+      console.log('BorrowContext - getAllBorrowRequests response:', response);
       
       // Parse data dengan benar - backend mengirim data.borrows untuk admin
       const requestsData = response.data?.borrows || [];
+      console.log('BorrowContext - Setting borrowRequests to:', requestsData);
       setBorrowRequests(requestsData);
     } catch (error) {
       console.error('Error fetching borrow requests:', error);
