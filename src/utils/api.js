@@ -31,6 +31,19 @@ const apiRequest = async (endpoint, options = {}) => {
     ...options,
   };
 
+  // Debug: Log request details
+  console.log('🚀 API Request Debug:');
+  console.log('URL:', url);
+  console.log('Raw token:', token);
+  console.log('Token exists?', !!token);
+  console.log('Auth header from token:', token && { 'Authorization': `Bearer ${token}` });
+  console.log('Headers before spread:', {
+    'Content-Type': 'application/json',
+    ...(token && { 'Authorization': `Bearer ${token}` })
+  });
+  console.log('Final headers:', config.headers);
+  console.log('Full config:', config);
+
   try {
     const response = await fetch(url, config);
     const data = await response.json();
@@ -339,6 +352,56 @@ export const requestAPI = {
   // Delete request
   delete: async (requestId) => {
     return await apiRequest(`/requests/${requestId}`, {
+      method: 'DELETE',
+    });
+  }
+};
+
+// Testimonials API calls
+export const testimonialAPI = {
+  // Get approved testimonials (public)
+  getApproved: async () => {
+    return await apiRequest('/testimonials/approved');
+  },
+
+  // Get all testimonials (admin only)
+  getAll: async () => {
+    return await apiRequest('/testimonials');
+  },
+
+  // Get user's testimonials
+  getMyTestimonials: async () => {
+    return await apiRequest('/testimonials/my-testimonials');
+  },
+
+  // Create testimonial
+  create: async (testimonialData) => {
+    // If FormData, don't stringify and don't set Content-Type (let browser set it)
+    if (testimonialData instanceof FormData) {
+      return await apiRequest('/testimonials', {
+        method: 'POST',
+        body: testimonialData
+      });
+    } else {
+      // Regular JSON data
+      return await apiRequest('/testimonials', {
+        method: 'POST',
+        body: JSON.stringify(testimonialData)
+      });
+    }
+  },
+
+  // Update testimonial status (admin only)
+  updateStatus: async (testimonialId, status) => {
+    return await apiRequest(`/testimonials/${testimonialId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  // Delete testimonial
+  delete: async (testimonialId) => {
+    return await apiRequest(`/testimonials/${testimonialId}`, {
       method: 'DELETE',
     });
   }

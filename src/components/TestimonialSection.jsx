@@ -1,14 +1,12 @@
-import { useState, useContext, useEffect } from 'react';
+import { useState, useContext, useEffect, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
-import { books } from '../data/books'; // Import books data
+import { testimonialAPI, booksAPI } from '../utils/api'; // Import testimonial and books API
 
 function TestimonialSection() {
   const { user } = useContext(AuthContext);
-  const [testimonials, setTestimonials] = useState(() => {
-    // Load initial testimonials from localStorage
-    const saved = localStorage.getItem('testimonials');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [testimonials, setTestimonials] = useState([]);
+  const [books, setBooks] = useState([]); // Add state for books from database
+  const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [newTestimonial, setNewTestimonial] = useState({
     text: '',
@@ -19,6 +17,63 @@ function TestimonialSection() {
     bookTitle: '' // Add bookTitle for display
   });
   const [selectedBook, setSelectedBook] = useState(''); // Track selected book for form
+
+  // Convert database testimonial to display format
+  const formatTestimonial = useCallback((dbTestimonial) => {
+    console.log('🔍 Formatting testimonial:', dbTestimonial);
+    const formatted = {
+      id: dbTestimonial.id,
+      text: dbTestimonial.content,
+      rating: dbTestimonial.rating,
+      date: dbTestimonial.created_at || dbTestimonial.createdAt,
+      // Handle both snake_case and camelCase from backend
+      bookTitle: dbTestimonial.bookTitle || dbTestimonial.book_title,
+      photoUrl: (dbTestimonial.photoPath || dbTestimonial.photo_path) ? 
+        `http://localhost:3001/uploads/testimonials/${dbTestimonial.photoPath || dbTestimonial.photo_path}` : null,
+      user: {
+        name: dbTestimonial.username,
+        class: 'Siswa', // Default since we don't store class in testimonial
+        initial: dbTestimonial.username[0].toUpperCase(),
+        profileImage: getUserProfileImage(dbTestimonial.username)
+      }
+    };
+    console.log('🔍 Formatted result:', formatted);
+    return formatted;
+  }, []);
+
+  // Load books from database
+  const loadBooks = useCallback(async () => {
+    try {
+      const response = await booksAPI.getAll();
+      if (response.status === 'success') {
+        console.log('📚 Loaded books from API:', response.data.books);
+        setBooks(response.data.books || []);
+      }
+    } catch (error) {
+      console.error('Error loading books:', error);
+    }
+  }, []);
+
+  // Load testimonials from database
+  const loadTestimonials = useCallback(async () => {
+    try {
+      const response = await testimonialAPI.getApproved();
+      console.log('🔍 Raw testimonials response:', response);
+      if (response.status === 'success') {
+        console.log('🔍 Raw testimonials data:', response.data.testimonials);
+        const formattedTestimonials = response.data.testimonials.map(formatTestimonial);
+        console.log('🔍 Formatted testimonials:', formattedTestimonials);
+        setTestimonials(formattedTestimonials);
+      }
+    } catch (error) {
+      console.error('Error loading testimonials:', error);
+    }
+  }, [formatTestimonial]);
+
+  useEffect(() => {
+    loadBooks(); // Load books when component mounts
+    loadTestimonials();
+  }, [loadBooks, loadTestimonials]);
 
   const handlePhotoChange = (e) => {
     const file = e.target.files[0];
@@ -40,53 +95,70 @@ function TestimonialSection() {
     return localStorage.getItem(`profileImage_${username}`);
   };
 
-  // Modify handleSubmit to include book info
-  const handleSubmit = (e) => {
+  // Modify handleSubmit to use API
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const testimonial = {
-      id: Date.now(),
-      user: {
-        name: user.username,
-        class: user.class || 'XII RPL 1',
-        initial: user.username[0].toUpperCase(),
-        profileImage: getUserProfileImage(user.username)
-      },
-      ...newTestimonial,
-      date: new Date().toISOString()
-    };
+    setLoading(true);
 
-    // Update both state and localStorage atomically
-    const updatedTestimonials = [testimonial, ...testimonials];
-    setTestimonials(updatedTestimonials);
-    localStorage.setItem('testimonials', JSON.stringify(updatedTestimonials));
+    try {
+      // Debug: Log current testimonial state
+      console.log('Current testimonial state:', newTestimonial);
 
-    setShowForm(false);
-    setNewTestimonial({ 
-      text: '', 
-      rating: 5, 
-      photo: null, 
-      photoPreview: null,
-      bookId: '',
-      bookTitle: '' 
-    });
+      // Create FormData for file upload and all data
+      const formData = new FormData();
+      formData.append('text', newTestimonial.text);
+      formData.append('rating', newTestimonial.rating);
+      
+      if (newTestimonial.bookId) {
+        formData.append('bookId', newTestimonial.bookId);
+        formData.append('bookTitle', newTestimonial.bookTitle);
+      }
+      
+      if (newTestimonial.photo) {
+        formData.append('photo', newTestimonial.photo);
+      }
+
+      const response = await testimonialAPI.create(formData);
+      
+      if (response.status === 'success') {
+        // Reload testimonials from database
+        await loadTestimonials();
+        
+        setShowForm(false);
+        setNewTestimonial({ 
+          text: '', 
+          rating: 5, 
+          photo: null, 
+          photoPreview: null,
+          bookId: '',
+          bookTitle: '' 
+        });
+        
+        // Show success message
+        alert('Testimoni berhasil dikirim!');
+      }
+    } catch (error) {
+      console.error('Error submitting testimonial:', error);
+      alert('Gagal mengirim testimoni. Silakan coba lagi.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (testimonialId) => {
+    if (window.confirm('Apakah Anda yakin ingin menghapus testimoni ini?')) {
+      try {
+        await testimonialAPI.delete(testimonialId);
+        // Reload testimonials after deletion
+        await loadTestimonials();
+      } catch (error) {
+        console.error('Error deleting testimonial:', error);
+        alert('Gagal menghapus testimoni.');
+      }
+    }
   };
 
   // Remove the storage event listener since we're handling updates directly
-  useEffect(() => {
-    const savedTestimonials = localStorage.getItem('testimonials');
-    if (savedTestimonials) {
-      setTestimonials(JSON.parse(savedTestimonials));
-    }
-  }, []);
-
-  const handleDelete = (testimonialId) => {
-    if (window.confirm('Apakah Anda yakin ingin menghapus testimoni ini?')) {
-      const updatedTestimonials = testimonials.filter(t => t.id !== testimonialId);
-      setTestimonials(updatedTestimonials);
-      localStorage.setItem('testimonials', JSON.stringify(updatedTestimonials));
-    }
-  };
-
   useEffect(() => {
     const handleOpenTestimonial = (e) => {
       setShowForm(true);
@@ -137,11 +209,25 @@ function TestimonialSection() {
                   required
                   value={newTestimonial.bookId}
                   onChange={(e) => {
+                    console.log('📚 Book selection changed:', e.target.value);
+                    console.log('📚 Available books:', books);
                     const book = books.find(b => b.id === parseInt(e.target.value));
+                    console.log('📚 Found book:', book);
+                    
+                    // Fallback: if book not found but we have books, use the title from option text
+                    let bookTitle = '';
+                    if (book) {
+                      bookTitle = book.title;
+                    } else if (e.target.selectedOptions[0] && e.target.selectedOptions[0].text !== 'Pilih Buku') {
+                      // Extract title from "Title - oleh Author" format
+                      bookTitle = e.target.selectedOptions[0].text.split(' - oleh ')[0];
+                    }
+                    
+                    console.log('📚 Final bookTitle:', bookTitle);
                     setNewTestimonial({
                       ...newTestimonial,
                       bookId: e.target.value,
-                      bookTitle: book ? book.title : ''
+                      bookTitle: bookTitle
                     });
                   }}
                   className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-red-500 text-white"
@@ -245,13 +331,21 @@ function TestimonialSection() {
           {testimonials.length > 0 ? (
             testimonials.map((testimonial) => (
               <div key={testimonial.id} className="bg-gray-800/50 backdrop-blur-sm p-6 rounded-2xl border border-gray-700 hover:border-red-500/30 transition-all duration-300">
-                {testimonial.photoPreview && (
+                {/* Display photo if available */}
+                {testimonial.photoUrl && (
                   <div className="mb-6">
                     <img
-                      src={testimonial.photoPreview}
+                      src={testimonial.photoUrl}
                       alt="Reading Activity"
                       className="w-full h-48 object-cover rounded-lg"
                     />
+                  </div>
+                )}
+                {/* Display book title if available */}
+                {testimonial.bookTitle && (
+                  <div className="mb-4 text-sm">
+                    <span className="text-gray-400">Buku yang dibaca:</span>
+                    <span className="text-white ml-2 font-medium">{testimonial.bookTitle}</span>
                   </div>
                 )}
                 <div className="flex items-center justify-between mb-6">
