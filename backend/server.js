@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const bookRoutes = require('./routes/books');
 const borrowRoutes = require('./routes/borrow');
+const requestRoutes = require('./routes/requests');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -25,6 +26,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/borrow', borrowRoutes);
+app.use('/api/requests', requestRoutes);
 
 // Basic route untuk test
 app.get('/', (req, res) => {
