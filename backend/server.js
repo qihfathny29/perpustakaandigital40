@@ -9,6 +9,7 @@ const userRoutes = require('./routes/users');
 const bookRoutes = require('./routes/books');
 const borrowRoutes = require('./routes/borrow');
 const requestRoutes = require('./routes/requests');
+const testimonialRoutes = require('./routes/testimonials');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -27,6 +28,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/borrow', borrowRoutes);
 app.use('/api/requests', requestRoutes);
+app.use('/api/testimonials', testimonialRoutes);
 
 // Basic route untuk test
 app.get('/', (req, res) => {
@@ -78,6 +80,11 @@ async function startServer() {
     try {
         console.log('🔄 Testing database connection...');
         await testConnection();
+        
+        // Initialize database tables
+        console.log('🔄 Initializing database tables...');
+        const Testimonial = require('./models/Testimonial');
+        await Testimonial.createTable();
         
         app.listen(PORT, () => {
             console.log('🚀 Server is running!');
