@@ -1,4 +1,39 @@
 const { getConnection } = require('../config/database');
+const User = require('../models/User');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+
+// Setup multer for file upload
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        const uploadDir = './uploads/profiles';
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
+    },
+    filename: function (req, file, cb) {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, `profile-${req.user.userId}-${uniqueSuffix}${path.extname(file.originalname)}`);
+    }
+});
+
+const upload = multer({ 
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = /jpeg|jpg|png|gif/;
+        const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedTypes.test(file.mimetype);
+
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed!'));
+        }
+    },
+    limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
+});
 
 // Get all users with statistics
 const getAllUsers = async (req, res) => {
@@ -212,9 +247,142 @@ const getDashboardStats = async (req, res) => {
     }
 };
 
+// Get user profile
+const getProfile = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            status: 'success',
+            data: {
+                user: user.toJSON()
+            }
+        });
+
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+// Update user profile
+const updateProfile = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+        const { fullName, nis, class: userClass, email } = req.body;
+
+        // Validation
+        if (!fullName || !nis || !userClass || !email) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'All profile fields are required'
+            });
+        }
+
+        // Update profile
+        const updatedUser = await User.updateProfile(userId, {
+            fullName,
+            nis,
+            class: userClass,
+            email
+        });
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            status: 'success',
+            message: 'Profile updated successfully',
+            data: {
+                user: updatedUser.toJSON()
+            }
+        });
+
+    } catch (error) {
+        console.error('Update profile error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+// Update profile image
+const updateProfileImage = async (req, res) => {
+    try {
+        const userId = req.user.userId;
+
+        if (!req.file) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'No image file provided'
+            });
+        }
+
+        // Get the file path
+        const profileImagePath = `/uploads/profiles/${req.file.filename}`;
+
+        // Update profile image in database
+        const updatedUser = await User.updateProfileImage(userId, profileImagePath);
+
+        if (!updatedUser) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            status: 'success',
+            message: 'Profile image updated successfully',
+            data: {
+                user: updatedUser.toJSON(),
+                profileImageUrl: `${req.protocol}://${req.get('host')}${profileImagePath}`
+            }
+        });
+
+    } catch (error) {
+        console.error('Update profile image error:', error);
+        
+        // Delete uploaded file if error occurs
+        if (req.file) {
+            fs.unlink(req.file.path, (err) => {
+                if (err) console.error('Error deleting file:', err);
+            });
+        }
+
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     getAllUsers,
     getUserById,
     deleteUser,
-    getDashboardStats
+    getDashboardStats,
+    getProfile,
+    updateProfile,
+    updateProfileImage,
+    upload
 };
