@@ -23,7 +23,8 @@ const apiRequest = async (endpoint, options = {}) => {
 
   const config = {
     headers: {
-      'Content-Type': 'application/json',
+      // Only set Content-Type if not FormData (for file uploads)
+      ...(!(options.body instanceof FormData) && { 'Content-Type': 'application/json' }),
       ...(token && { 'Authorization': `Bearer ${token}` }),
       ...options.headers,
     },
@@ -258,6 +259,50 @@ export const usersAPI = {
   },
   
   // Get dashboard statistics
+  getStats: async () => {
+    return await apiRequest('/users/stats');
+  }
+};
+
+// Combined User API (includes profile functions)
+export const userAPI = {
+  // Profile operations
+  getProfile: async () => {
+    return await apiRequest('/users/profile');
+  },
+
+  updateProfile: async (profileData) => {
+    return await apiRequest('/users/profile', {
+      method: 'PUT',
+      body: JSON.stringify(profileData),
+    });
+  },
+
+  updateProfileImage: async (imageFile) => {
+    const formData = new FormData();
+    formData.append('profileImage', imageFile);
+
+    return await apiRequest('/users/profile/image', {
+      method: 'PUT',
+      body: formData,
+    });
+  },
+  
+  // Admin operations
+  getAll: async () => {
+    return await apiRequest('/users');
+  },
+  
+  getById: async (id) => {
+    return await apiRequest(`/users/${id}`);
+  },
+  
+  delete: async (id) => {
+    return await apiRequest(`/users/${id}`, {
+      method: 'DELETE',
+    });
+  },
+  
   getStats: async () => {
     return await apiRequest('/users/stats');
   }

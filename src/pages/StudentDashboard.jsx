@@ -5,6 +5,7 @@ import { ReadingContext } from '../context/ReadingContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { books } from '../data/books';
 import BookCard from '../components/BookCard';
+import { userAPI } from '../utils/api';
 
 function StudentDashboard() {
   const { user, logout } = useContext(AuthContext);
@@ -28,46 +29,112 @@ function StudentDashboard() {
   });
   const [showOverdueModal, setShowOverdueModal] = useState(false);
   const [overdueBooks, setOverdueBooks] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  // Modifikasi state untuk mengambil data dari localStorage
-  const [profileImage, setProfileImage] = useState(() => {
-    const savedImage = localStorage.getItem(`profileImage_${user?.username}`);
-    return savedImage || user?.profileImage || null;
+  // State untuk profile - akan diambil dari API
+  const [profileImage, setProfileImage] = useState(null);
+  const [formData, setFormData] = useState({
+    fullName: '',
+    nis: '',
+    class: '',
+    email: ''
   });
 
-  const [formData, setFormData] = useState(() => {
-    const savedData = localStorage.getItem(`userProfile_${user?.username}`);
-    return savedData ? JSON.parse(savedData) : {
-      fullName: user?.username || '',
-      nis: '123456',
-      class: 'XII RPL 1',
-      email: 'student@example.com'
+  // Load profile data dari API saat component mount
+  useEffect(() => {
+    const loadProfile = async () => {
+      if (!user) return;
+      
+      try {
+        setLoading(true);
+        const response = await userAPI.getProfile();
+        const userData = response.data.user;
+        
+        // Set form data dari database
+        setFormData({
+          fullName: userData.fullName || '',
+          nis: userData.nis || '',
+          class: userData.class || '',
+          email: userData.email || ''
+        });
+        
+        // Set profile image
+        if (userData.profileImage) {
+          setProfileImage(`http://localhost:3001${userData.profileImage}`);
+        }
+      } catch (error) {
+        console.error('Error loading profile:', error);
+        // Fallback ke default values jika error
+        setFormData({
+          fullName: user?.username || '',
+          nis: '',
+          class: '',
+          email: ''
+        });
+      } finally {
+        setLoading(false);
+      }
     };
-  });
 
-  // Modifikasi handleImageChange
-  const handleImageChange = (e) => {
+    loadProfile();
+  }, [user]);
+
+  // Handle image change - upload ke server
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const imageData = reader.result;
-        setProfileImage(imageData);
-        localStorage.setItem(`profileImage_${user?.username}`, imageData);
-      };
-      reader.readAsDataURL(file);
+      try {
+        setLoading(true);
+        console.log('Starting image upload...');
+        console.log('File:', file);
+        
+        // Preview image locally first
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setProfileImage(reader.result);
+        };
+        reader.readAsDataURL(file);
+
+        // Upload to server
+        console.log('Calling userAPI.updateProfileImage...');
+        const response = await userAPI.updateProfileImage(file);
+        console.log('Upload response:', response);
+        
+        if (response.status === 'success') {
+          setProfileImage(response.data.profileImageUrl);
+          setShowSuccess(true);
+          setTimeout(() => setShowSuccess(false), 3000);
+          console.log('Upload successful:', response.data.profileImageUrl);
+        }
+      } catch (error) {
+        console.error('Error uploading image:', error);
+        console.error('Error details:', error.message);
+        alert('Gagal mengupload foto profil: ' + error.message);
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
-  // Modifikasi handleSubmit
-  const handleSubmit = (e) => {
+  // Handle form submit - update ke database
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Simpan ke localStorage
-    localStorage.setItem(`userProfile_${user?.username}`, JSON.stringify(formData));
     
-    setIsEditing(false);
-    setShowSuccess(true);
-    setTimeout(() => setShowSuccess(false), 3000);
+    try {
+      setLoading(true);
+      const response = await userAPI.updateProfile(formData);
+      
+      if (response.status === 'success') {
+        setIsEditing(false);
+        setShowSuccess(true);
+        setTimeout(() => setShowSuccess(false), 3000);
+      }
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      alert('Gagal memperbarui profil');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleLogout = () => {
