@@ -10,6 +10,7 @@ const bookRoutes = require('./routes/books');
 const borrowRoutes = require('./routes/borrow');
 const requestRoutes = require('./routes/requests');
 const testimonialRoutes = require('./routes/testimonials');
+const readingRoutes = require('./routes/reading');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -29,6 +30,7 @@ app.use('/api/books', bookRoutes);
 app.use('/api/borrow', borrowRoutes);
 app.use('/api/requests', requestRoutes);
 app.use('/api/testimonials', testimonialRoutes);
+app.use('/api/reading', readingRoutes);
 
 // Basic route untuk test
 app.get('/', (req, res) => {
