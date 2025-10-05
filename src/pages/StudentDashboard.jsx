@@ -29,7 +29,12 @@ const formatDate = (dateString) => {
 function StudentDashboard() {
   const { user, logout } = useContext(AuthContext);
   const { borrowedBooks, returnBook } = useBorrow();
-  const { readingHistory, updateReadingProgress } = useContext(ReadingContext);
+  const { readingHistory, updateReadingProgress, getReadingProgress } = useContext(ReadingContext);
+  
+  // Debug log setiap render
+  console.log('🏠 StudentDashboard render - readingHistory:', readingHistory);
+  console.log('🏠 StudentDashboard render - readingHistory length:', readingHistory.length);
+  
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('peminjaman');
   const [isEditing, setIsEditing] = useState(false);
@@ -286,11 +291,11 @@ function StudentDashboard() {
             <BookCard
               key={book.id}
               {...book}
-              onContinueReading={(bookId) => {
-                const progress = localStorage.getItem(`readingProgress_${bookId}`);
-                if (progress) {
-                  const { currentPage } = JSON.parse(progress);
-                  handleOpenReader(bookId, currentPage);
+              onContinueReading={async (bookId) => {
+                // Use ReadingContext to get progress from database instead of localStorage
+                const progress = await getReadingProgress(bookId);
+                if (progress && progress.current_page) {
+                  handleOpenReader(bookId, progress.current_page);
                 } else {
                   handleOpenReader(bookId, 1);
                 }
@@ -303,6 +308,12 @@ function StudentDashboard() {
   };
 
   const renderReadingHistory = () => {
+    console.log('🎯 renderReadingHistory called with readingHistory:', readingHistory);
+    console.log('🎯 readingHistory length:', readingHistory.length);
+    readingHistory.forEach((book, index) => {
+      console.log(`🎯 Book ${index + 1}:`, book);
+    });
+    
     if (readingHistory.length === 0) {
       return (
         <div className="text-center py-16">
@@ -321,7 +332,7 @@ function StudentDashboard() {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {readingHistory.map((book) => (
-          <div key={book.bookId} className="flex bg-gray-900/50 rounded-lg overflow-hidden border border-gray-700">
+          <div key={book.book_id} className="flex bg-gray-900/50 rounded-lg overflow-hidden border border-gray-700">
             <div className="w-32 h-44">
               <img 
                 src={`https://source.unsplash.com/random/400x600/?book,${book.title}`}
@@ -335,7 +346,7 @@ function StudentDashboard() {
               <div className="mb-4">
                 <div className="flex justify-between text-sm text-gray-400 mb-1">
                   <span>Progress</span>
-                  <span>Halaman {book.currentPage}/{book.totalPages}</span>
+                  <span>Halaman {book.current_page}/{book.total_pages}</span>
                 </div>
                 <div className="w-full bg-gray-700 rounded-full h-2">
                   <div 
@@ -346,10 +357,10 @@ function StudentDashboard() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs text-gray-500">
-                  Terakhir dibaca: {new Date(book.lastRead).toLocaleDateString()}
+                  Terakhir dibaca: {new Date(book.last_read).toLocaleDateString()}
                 </span>
                 <button
-                  onClick={() => handleContinueReading(book.bookId, book.currentPage)}
+                  onClick={() => handleContinueReading(book.book_id, book.current_page)}
                   className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
                 >
                   Lanjutkan
@@ -431,38 +442,6 @@ function StudentDashboard() {
     
     setFavoriteBook(mostBorrowedBook);
   }, [borrowedBooks, user.id]);
-
-  // Add useEffect to refresh reading history when component mounts
-  useEffect(() => {
-    const refreshReadingHistory = () => {
-      const updatedHistory = readingHistory.map(history => {
-        const savedProgress = localStorage.getItem(`readingProgress_${history.bookId}`);
-        if (savedProgress) {
-          const { currentPage, lastRead, progress } = JSON.parse(savedProgress);
-          return {
-            ...history,
-            currentPage,
-            lastRead,
-            progress
-          };
-        }
-        return history;
-      });
-      
-      // Update context with latest progress
-      updatedHistory.forEach(history => {
-        updateReadingProgress(
-          history.bookId,
-          history.title,
-          history.author,
-          history.currentPage,
-          history.totalPages
-        );
-      });
-    };
-
-    refreshReadingHistory();
-  }, [readingHistory, updateReadingProgress]);
 
   // Add request book function - menggunakan API
   const handleRequestBook = async (book) => {
@@ -860,23 +839,34 @@ function StudentDashboard() {
                   <h2 className="text-xl sm:text-2xl font-bold text-white mb-4 sm:mb-6">Riwayat Baca Digital</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                     {readingHistory.map((history) => {
-                      const book = books.find(b => b.id === history.bookId);
-                      if (!book) return null;
+                      // Get image from books database if available
+                      const book = books.find(b => b.id === parseInt(history.book_id));
                       
                       return (
-                        <div key={history.bookId} className="flex bg-gray-900/50 rounded-lg overflow-hidden border border-gray-700">
-                          <img 
-                            src={book.imageUrl} 
-                            alt={book.title}
-                            className="w-32 h-44 object-cover"
-                          />
+                        <div key={history.book_id} className="flex bg-gray-900/50 rounded-lg overflow-hidden border border-gray-700">
+                          <div className="w-32 h-44 bg-gray-600 flex flex-col items-center justify-center text-center p-2">
+                            {book?.imageUrl && book.imageUrl.startsWith('data:image') ? (
+                              <img 
+                                src={book.imageUrl}
+                                alt={history.title}
+                                className="w-full h-full object-cover rounded"
+                              />
+                            ) : (
+                              <>
+                                <div className="text-4xl mb-2">📚</div>
+                                <div className="text-xs text-gray-300 font-medium leading-tight">
+                                  {history.title.slice(0,15)}
+                                </div>
+                              </>
+                            )}
+                          </div>
                           <div className="flex-1 p-4">
-                            <h3 className="text-lg font-semibold text-white mb-1">{book.title}</h3>
-                            <p className="text-sm text-gray-400 mb-2">{book.author}</p>
+                            <h3 className="text-lg font-semibold text-white mb-1">{history.title}</h3>
+                            <p className="text-sm text-gray-400 mb-2">oleh {history.author}</p>
                             <div className="mb-4">
                               <div className="flex justify-between text-sm text-gray-400 mb-1">
                                 <span>Progress</span>
-                                <span>Halaman {history.currentPage}/100</span>
+                                <span>Halaman {history.current_page}/{history.total_pages}</span>
                               </div>
                               <div className="w-full bg-gray-700 rounded-full h-2">
                                 <div 
@@ -887,10 +877,10 @@ function StudentDashboard() {
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-xs text-gray-500">
-                                Terakhir dibaca: {new Date(history.lastRead).toLocaleDateString()}
+                                Terakhir dibaca: {new Date(history.last_read).toLocaleDateString()}
                               </span>
                               <button
-                                onClick={() => handleContinueReading(book.id, history.currentPage)}
+                                onClick={() => handleContinueReading(history.book_id, history.current_page)}
                                 className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
                               >
                                 Lanjutkan

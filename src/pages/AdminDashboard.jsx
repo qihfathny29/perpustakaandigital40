@@ -196,6 +196,9 @@ function AdminDashboard() {
     if (activeTab === 'dashboard') {
       fetchDashboardStats();
     }
+    if (activeTab === 'reports') {
+      fetchBooks(); // Fetch books untuk data laporan
+    }
   }, [activeTab]);
 
   // Sync profile dengan user context
@@ -208,9 +211,10 @@ function AdminDashboard() {
     }
   }, [user]);
 
-  // Initial load dashboard stats
+  // Initial load dashboard stats and books
   useEffect(() => {
     fetchDashboardStats();
+    fetchBooks(); // Load books for initial data
   }, []);
 
   // Fetch book requests dari API

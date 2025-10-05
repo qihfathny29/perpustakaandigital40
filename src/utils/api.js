@@ -406,3 +406,36 @@ export const testimonialAPI = {
     });
   }
 };
+
+// Reading Progress API calls
+export const readingAPI = {
+  // Get reading progress for specific book
+  getProgress: async (bookId) => {
+    return await apiRequest(`/reading/${bookId}`);
+  },
+
+  // Get user's complete reading history
+  getHistory: async () => {
+    return await apiRequest('/reading/history');
+  },
+
+  // Update reading progress for specific book
+  updateProgress: async (bookId, progressData) => {
+    return await apiRequest(`/reading/${bookId}`, {
+      method: 'PUT',
+      body: JSON.stringify(progressData)
+    });
+  },
+
+  // Delete reading progress for specific book
+  deleteProgress: async (bookId) => {
+    return await apiRequest(`/reading/${bookId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Get reading statistics (admin only)
+  getStatistics: async () => {
+    return await apiRequest('/reading/statistics');
+  }
+};

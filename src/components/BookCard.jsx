@@ -1,4 +1,4 @@
-import { useState, useRef, useContext } from 'react';
+import { useState, useRef, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
 import { useBorrow } from '../context/BorrowContext';
@@ -35,11 +35,26 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
   const pageRef = useRef(null);
   const [cardRef, isInView] = useInView({ threshold: 0.1 });
 
-  // Add new state for reading progress
-  const [readingProgress, setReadingProgress] = useState(() => {
-    const saved = localStorage.getItem(`readingProgress_${id}`);
-    return saved ? JSON.parse(saved) : { currentPage: 1, lastRead: null };
-  });
+  // Add new state for reading progress - now using database
+  const [readingProgress, setReadingProgress] = useState({ currentPage: 1, lastRead: null });
+  const { getReadingProgress } = useContext(ReadingContext);
+
+  // Load reading progress from database when component mounts
+  useEffect(() => {
+    const loadProgress = async () => {
+      if (user) {
+        const progress = await getReadingProgress(id);
+        if (progress) {
+          setReadingProgress({
+            currentPage: progress.currentPage,
+            lastRead: progress.lastRead
+          });
+          setCurrentPage(progress.currentPage);
+        }
+      }
+    };
+    loadProgress();
+  }, [user, id, getReadingProgress]);
 
   // New state to manage request status
   const [requestStatus, setRequestStatus] = useState(() => {
@@ -272,13 +287,14 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
     }
   };
 
-  const handleContinueReading = () => {
-    const savedProgress = localStorage.getItem(`readingProgress_${id}`);
+  const handleContinueReading = async () => {
     let startPage = 1;
     
-    if (savedProgress) {
-      const { currentPage } = JSON.parse(savedProgress);
-      startPage = currentPage;
+    if (user) {
+      const progress = await getReadingProgress(id);
+      if (progress) {
+        startPage = progress.currentPage;
+      }
     }
 
     setCurrentPage(startPage);
@@ -289,13 +305,6 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
   const handleCloseReader = () => {
     if (currentPage > 1) { // Only save if user has read something
       updateReadingProgress(id, title, author, currentPage, totalPages);
-      
-      // Update local reading progress
-      localStorage.setItem(`readingProgress_${id}`, JSON.stringify({
-        currentPage,
-        lastRead: new Date().toISOString(),
-        progress: Math.round((currentPage / totalPages) * 100)
-      }));
     }
     setShowDigitalReader(false);
   };
