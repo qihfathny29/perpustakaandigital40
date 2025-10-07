@@ -42,9 +42,9 @@ export const BorrowProvider = ({ children }) => {
     }
   };
 
-  // Fetch all borrow requests (for admin)
+  // Fetch all borrow requests (for admin and petugas)
   const fetchBorrowRequests = async () => {
-    if (!user || user.role !== 'admin') return;
+    if (!user || !['admin', 'petugas'].includes(user.role)) return;
     
     try {
       setIsLoading(true);
@@ -95,8 +95,9 @@ export const BorrowProvider = ({ children }) => {
       await fetchBorrowedBooks();
       
       return {
+        status: 'success',
         success: true,
-        message: 'Book borrowed successfully! Waiting for admin approval.'
+        message: 'Peminjaman berhasil! Menunggu persetujuan petugas.'
       };
     } catch (error) {
       console.error('Error borrowing book:', error);
@@ -130,10 +131,10 @@ export const BorrowProvider = ({ children }) => {
     }
   };
 
-  // Approve borrow request (admin only)
+  // Approve borrow request (petugas only)
   const approveBorrow = async (borrowId) => {
-    if (!user || user.role !== 'admin') {
-      throw new Error('Only admin can approve borrow requests');
+    if (!user || user.role !== 'petugas') {
+      throw new Error('Only petugas can approve borrow requests');
     }
 
     try {
@@ -158,10 +159,10 @@ export const BorrowProvider = ({ children }) => {
     }
   };
 
-  // Reject borrow request (admin only)
+  // Reject borrow request (petugas only)
   const rejectBorrow = async (borrowId) => {
-    if (!user || user.role !== 'admin') {
-      throw new Error('Only admin can reject borrow requests');
+    if (!user || user.role !== 'petugas') {
+      throw new Error('Only petugas can reject borrow requests');
     }
 
     try {

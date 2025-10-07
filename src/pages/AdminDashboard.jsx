@@ -1,12 +1,11 @@
-import { useContext, useState, useEffect } from 'react';
+import { useContext, useState, useEffect, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { usersAPI, booksAPI, authAPI, requestAPI } from '../utils/api';
+import { usersAPI, booksAPI, authAPI, requestAPI, borrowAPI } from '../utils/api';
 import Chart from 'chart.js/auto';
+import { useBorrow } from '../context/BorrowContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import * as XLSX from 'xlsx';
-import { useBorrow } from '../context/BorrowContext';
 
 // Utility function untuk format tanggal Indonesia
 const formatDate = (dateString) => {
@@ -29,7 +28,7 @@ const formatDate = (dateString) => {
 
 function AdminDashboard() {
   const { user, logout } = useContext(AuthContext);
-  const { borrowRequests, approveBorrow, rejectBorrow } = useBorrow();
+  const { borrowRequests } = useBorrow();
   const navigate = useNavigate();
   const [showAddForm, setShowAddForm] = useState(false);
   const [newBook, setNewBook] = useState({
@@ -59,6 +58,16 @@ function AdminDashboard() {
     users: { total: 0 }
   });
 
+  // State untuk borrow statistics (untuk grafik peminjaman)
+  const [borrowStatusStats, setBorrowStatusStats] = useState([]);
+  
+  // State untuk filter tanggal
+  const [dateFilter, setDateFilter] = useState({
+    period: 'all', // 'all', 'month', 'year', 'custom'
+    startDate: '',
+    endDate: ''
+  });
+
   // State untuk profile admin
   const [profile, setProfile] = useState({
     fullName: user?.username || 'Admin',
@@ -70,6 +79,15 @@ function AdminDashboard() {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
+
+  // State untuk download modal
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadFilter, setDownloadFilter] = useState({
+    type: 'all', // 'all', 'date', 'month', 'year'
+    selectedDate: '',
+    selectedMonth: '',
+    selectedYear: ''
+  });
 
   const categories = ['Fiksi', 'Non-Fiksi', 'Pendidikan', 'Novel'];
 
@@ -114,6 +132,19 @@ function AdminDashboard() {
       console.error('Error fetching books:', error);
       setNotification('Gagal memuat data buku');
       setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  // Function untuk fetch borrow status statistics dari API
+  const fetchBorrowStatusStats = async (filter = null) => {
+    try {
+      const response = await borrowAPI.getBorrowStatusStats(filter);
+      if (response.status === 'success') {
+        setBorrowStatusStats(response.data.statusStats);
+      }
+    } catch (error) {
+      console.error('Error fetching borrow status stats:', error);
+      setBorrowStatusStats([]);
     }
   };
 
@@ -198,6 +229,7 @@ function AdminDashboard() {
     }
     if (activeTab === 'reports') {
       fetchBooks(); // Fetch books untuk data laporan
+      fetchBorrowStatusStats(); // Fetch data status peminjaman
     }
   }, [activeTab]);
 
@@ -215,7 +247,49 @@ function AdminDashboard() {
   useEffect(() => {
     fetchDashboardStats();
     fetchBooks(); // Load books for initial data
+    fetchBorrowStatusStats(); // Load borrow status stats for initial data
   }, []);
+
+  // Helper function to get date filter parameters
+  const getDateFilterParams = useCallback(() => {
+    const now = new Date();
+    let startDate, endDate;
+
+    switch (dateFilter.period) {
+      case 'month':
+        startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        break;
+      case 'year':
+        startDate = new Date(now.getFullYear(), 0, 1);
+        endDate = new Date(now.getFullYear(), 11, 31);
+        break;
+      case 'custom':
+        if (dateFilter.startDate && dateFilter.endDate) {
+          startDate = new Date(dateFilter.startDate);
+          endDate = new Date(dateFilter.endDate);
+        }
+        break;
+      default:
+        return null;
+    }
+
+    if (startDate && endDate) {
+      return {
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0]
+      };
+    }
+    return null;
+  }, [dateFilter]);
+
+  // Update chart when date filter changes
+  useEffect(() => {
+    if (activeTab === 'reports') {
+      const filter = getDateFilterParams();
+      fetchBorrowStatusStats(filter);
+    }
+  }, [dateFilter, activeTab, getDateFilterParams]);
 
   // Fetch book requests dari API
   useEffect(() => {
@@ -248,36 +322,7 @@ function AdminDashboard() {
 
 
 
-  const handleRequestAction = async (requestId, action) => {
-    try {
-      console.log(`🔄 Processing ${action} for request ID: ${requestId}`);
-      
-      const status = action === 'approve' ? 'approved' : 'rejected';
-      const response = await requestAPI.updateStatus(requestId, status);
-      
-      if (response.status === 'success') {
-        console.log('✅ Request status updated:', response.data);
-        
-        // Update state locally untuk UI responsiveness
-        setBookRequests(requests => 
-          requests.map(request => 
-            request.id === requestId 
-              ? {...request, status: status}
-              : request
-          )
-        );
-        
-        setNotification(`Request berhasil ${action === 'approve' ? 'disetujui' : 'ditolak'}!`);
-        setTimeout(() => setNotification(''), 3000);
-      } else {
-        throw new Error(response.message || 'Failed to update request status');
-      }
-    } catch (error) {
-      console.error('Error updating request status:', error);
-      setNotification('Gagal memproses request. Silakan coba lagi.');
-      setTimeout(() => setNotification(''), 3000);
-    }
-  };
+
 
   // Untuk update data jika ada perubahan di localStorage
   useEffect(() => {
@@ -319,6 +364,7 @@ function AdminDashboard() {
     // Hapus chart lama jika ada
     if (window.lineChartInstance) window.lineChartInstance.destroy();
     if (window.pieChartInstance) window.pieChartInstance.destroy();
+    if (window.statusPieChartInstance) window.statusPieChartInstance.destroy();
 
     // Data untuk diagram garis (stok buku per judul)
     const bookTitles = books.map(b => b.title);
@@ -385,85 +431,40 @@ function AdminDashboard() {
         }
       });
     }
-  }, [activeTab, books]);
 
-  // Fungsi untuk download data buku ke PDF
-  const handleDownloadPDF = () => {
-    const doc = new jsPDF({
-      orientation: 'landscape',
-      unit: 'pt',
-      format: 'A4'
-    });
-    doc.setFontSize(18);
-    doc.text('Data Buku Perpustakaan', 40, 40);
+    // Data dan chart untuk status peminjaman (Pie Chart)
+    const statusLabels = borrowStatusStats.map(stat => stat.label);
+    const statusData = borrowStatusStats.map(stat => stat.count);
+    const statusColors = borrowStatusStats.map(stat => stat.color);
 
-    // Siapkan data untuk tabel
-    const tableColumn = [
-      { header: "Judul", dataKey: "title" },
-      { header: "Penulis", dataKey: "author" },
-      { header: "Kategori", dataKey: "category" },
-      { header: "Stok", dataKey: "stock" },
-      { header: "Status", dataKey: "status" },
-      { header: "Sinopsis", dataKey: "synopsis" }
-    ];
-    const tableRows = books.map(book => ({
-      title: book.title,
-      author: book.author,
-      category: book.category,
-      stock: book.stock,
-      status: book.available ? "Tersedia" : "Dipinjam",
-      synopsis: book.synopsis
-    }));
-
-    autoTable(doc, {
-      head: [tableColumn.map(col => col.header)],
-      body: tableRows.map(row => tableColumn.map(col => row[col.dataKey])),
-      startY: 60,
-      margin: { left: 40, right: 40 },
-      styles: { fontSize: 11, cellPadding: 6, overflow: 'linebreak' },
-      headStyles: { fillColor: [239, 68, 68], textColor: 255 },
-      columnStyles: {
-        0: { cellWidth: 90 }, // Judul
-        1: { cellWidth: 70 }, // Penulis
-        2: { cellWidth: 60 }, // Kategori
-        3: { cellWidth: 40 }, // Stok
-        4: { cellWidth: 60 }, // Status
-        5: { cellWidth: 220 } // Sinopsis (lebar)
-      },
-      didDrawPage: (data) => {
-        doc.setFontSize(10);
-        doc.setTextColor(150);
-        doc.text(
-          `Generated at: ${new Date().toLocaleString()}`,
-          data.settings.margin.left,
-          doc.internal.pageSize.height - 10
-        );
-      }
-    });
-
-    doc.save('data-buku-perpustakaan.pdf');
-  };
-
-  // Fungsi untuk download data buku ke Excel
-  const handleDownloadExcel = () => {
-    // Siapkan data untuk worksheet
-    const data = books.map(book => ({
-      Judul: book.title,
-      Penulis: book.author,
-      Kategori: book.category,
-      Stok: book.stock,
-      Status: book.available ? "Tersedia" : "Dipinjam",
-      Sinopsis: book.synopsis
-    }));
-
-    // Buat worksheet dan workbook
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Data Buku");
-
-    // Download file
-    XLSX.writeFile(workbook, "data-buku-perpustakaan.xlsx");
-  };
+    const statusPieCtx = document.getElementById('statusPieChart')?.getContext('2d');
+    if (statusPieCtx && borrowStatusStats.length > 0) {
+      window.statusPieChartInstance = new Chart(statusPieCtx, {
+        type: 'doughnut',
+        data: {
+          labels: statusLabels,
+          datasets: [{
+            data: statusData,
+            backgroundColor: statusColors,
+            borderColor: '#374151',
+            borderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: { 
+                color: '#fff',
+                padding: 20
+              }
+            }
+          }
+        }
+      });
+    }
+  }, [activeTab, books, borrowStatusStats]);
 
   // Handle profile image change
   const handleProfileImageChange = (e) => {
@@ -510,6 +511,146 @@ function AdminDashboard() {
     } catch (error) {
       console.error('Update profile error:', error);
       setNotification('Gagal memperbarui profile: ' + error.message);
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  // Handle Download Data
+  const handleDownloadData = () => {
+    try {
+      // Filter data berdasarkan pilihan user
+      let filteredData = borrowRequests;
+      let filename = 'data_peminjaman_';
+      let periodLabel = '';
+
+      if (downloadFilter.type === 'date' && downloadFilter.selectedDate) {
+        const selectedDate = new Date(downloadFilter.selectedDate);
+        filteredData = borrowRequests.filter(borrow => {
+          const borrowDate = new Date(borrow.borrowDate);
+          return borrowDate.toDateString() === selectedDate.toDateString();
+        });
+        filename += downloadFilter.selectedDate;
+        periodLabel = `Tanggal: ${selectedDate.toLocaleDateString('id-ID')}`;
+      } else if (downloadFilter.type === 'month' && downloadFilter.selectedMonth) {
+        const [year, month] = downloadFilter.selectedMonth.split('-');
+        filteredData = borrowRequests.filter(borrow => {
+          const borrowDate = new Date(borrow.borrowDate);
+          return borrowDate.getFullYear() == year && (borrowDate.getMonth() + 1) == month;
+        });
+        filename += `${year}-${month}`;
+        const monthNames = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+        periodLabel = `Bulan: ${monthNames[month - 1]} ${year}`;
+      } else if (downloadFilter.type === 'year' && downloadFilter.selectedYear) {
+        filteredData = borrowRequests.filter(borrow => {
+          const borrowDate = new Date(borrow.borrowDate);
+          return borrowDate.getFullYear() == downloadFilter.selectedYear;
+        });
+        filename += downloadFilter.selectedYear;
+        periodLabel = `Tahun: ${downloadFilter.selectedYear}`;
+      } else {
+        filename += 'all';
+        periodLabel = 'Semua Data';
+      }
+
+      // Buat PDF
+      const doc = new jsPDF();
+      
+      // Set font untuk mendukung Unicode (jika diperlukan)
+      doc.setFont('helvetica');
+      
+      // Header
+      doc.setFontSize(20);
+      doc.setTextColor(40, 40, 40);
+      doc.text('Data Peminjaman Buku', 105, 20, { align: 'center' });
+      
+      // Sub header dengan periode
+      doc.setFontSize(12);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Periode: ${periodLabel}`, 105, 30, { align: 'center' });
+      doc.text(`Tanggal Export: ${new Date().toLocaleDateString('id-ID')}`, 105, 38, { align: 'center' });
+      
+      // Garis pembatas
+      doc.setLineWidth(0.5);
+      doc.setDrawColor(200, 200, 200);
+      doc.line(20, 45, 190, 45);
+
+      // Prepare data untuk tabel
+      const tableData = filteredData.map(borrow => {
+        const borrowDate = new Date(borrow.borrowDate).toLocaleDateString('id-ID');
+        const dueDate = new Date(borrow.dueDate).toLocaleDateString('id-ID');
+        const status = borrow.status === 'pending' ? 'Menunggu Persetujuan' :
+                     borrow.status === 'borrowed' ? 'Dipinjam' :
+                     borrow.status === 'returned' ? 'Dikembalikan' : 'Ditolak';
+        
+        return [
+          borrow.user?.username || 'N/A',
+          borrow.title,
+          borrowDate,
+          dueDate,
+          status
+        ];
+      });
+
+      // Buat tabel dengan autoTable
+      autoTable(doc, {
+        head: [['Siswa', 'Judul Buku', 'Tanggal Pinjam', 'Tenggat', 'Status']],
+        body: tableData,
+        startY: 55,
+        styles: {
+          fontSize: 10,
+          cellPadding: 5,
+        },
+        headStyles: {
+          fillColor: [220, 53, 69], // Red color matching theme
+          textColor: 255,
+          fontStyle: 'bold',
+        },
+        alternateRowStyles: {
+          fillColor: [245, 245, 245]
+        },
+        columnStyles: {
+          0: { cellWidth: 25 }, // Siswa
+          1: { cellWidth: 60 }, // Judul Buku
+          2: { cellWidth: 30 }, // Tanggal Pinjam
+          3: { cellWidth: 30 }, // Tenggat
+          4: { cellWidth: 35 }  // Status
+        },
+        margin: { top: 55, left: 20, right: 20 },
+        didDrawPage: function (data) {
+          // Footer
+          const pageCount = doc.internal.getNumberOfPages();
+          const pageHeight = doc.internal.pageSize.height;
+          
+          doc.setFontSize(8);
+          doc.setTextColor(100, 100, 100);
+          doc.text(
+            `Halaman ${data.pageNumber} dari ${pageCount}`, 
+            105, 
+            pageHeight - 10, 
+            { align: 'center' }
+          );
+          
+          // Footer info
+          doc.text(
+            'Generated by Perpustakaan Digital', 
+            105, 
+            pageHeight - 5, 
+            { align: 'center' }
+          );
+        }
+      });
+
+      // Download PDF
+      doc.save(`${filename}.pdf`);
+
+      // Close modal and show success notification
+      setShowDownloadModal(false);
+      setNotification(`Data berhasil didownload sebagai PDF! (${filteredData.length} records)`);
+      setTimeout(() => setNotification(''), 3000);
+
+    } catch (error) {
+      console.error('Error downloading data:', error);
+      setNotification('Gagal mendownload data: ' + error.message);
       setTimeout(() => setNotification(''), 3000);
     }
   };
@@ -1019,9 +1160,37 @@ function AdminDashboard() {
           )}
 
           {activeTab === 'borrows' && (
-            <div>
-              <h2 className="text-xl font-semibold text-white mb-6">Manajemen Peminjaman</h2>
-              <div className="overflow-x-auto">
+            <div className="bg-gray-900 rounded-lg border border-gray-700">
+              {/* Card Header with Download Button */}
+              <div className="flex justify-between items-center p-6 border-b border-gray-700">
+                <h2 className="text-xl font-semibold text-white">Manajemen Peminjaman</h2>
+                <button
+                  onClick={() => setShowDownloadModal(true)}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  Download Data
+                </button>
+              </div>
+
+              {/* Info Banner */}
+              <div className="mx-6 mt-6 p-4 bg-blue-600/20 border border-blue-500/50 rounded-lg backdrop-blur-sm">
+                <div className="flex items-center gap-3">
+                  <svg className="w-5 h-5 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div className="text-blue-300">
+                    <p className="font-medium">Mode Monitoring</p>
+                    <p className="text-sm text-blue-400">Persetujuan peminjaman sekarang dikelola oleh Petugas Perpustakaan. Admin dapat memantau semua aktivitas peminjaman.</p>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Table Content */}
+              <div className="p-6">
+                <div className="overflow-x-auto">
                 <table className="w-full text-gray-300 min-w-[800px]">
                   <thead className="bg-gray-800/50">
                     <tr>
@@ -1030,7 +1199,7 @@ function AdminDashboard() {
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tanggal Pinjam</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Tenggat</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Aksi</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status Proses</th>
                     </tr>
                   </thead>
                   <tbody className="bg-gray-800/30 divide-y divide-gray-700">
@@ -1059,40 +1228,21 @@ function AdminDashboard() {
                             </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          {borrow.status === 'pending' && (
-                            <>
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await approveBorrow(borrow.id);
-                                  } catch (error) {
-                                    console.error('Error approving borrow:', error);
-                                  }
-                                }}
-                                className="px-3 py-1 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 mr-2"
-                              >
-                                Setujui
-                              </button>
-                              <button
-                                onClick={async () => {
-                                  try {
-                                    await rejectBorrow(borrow.id);
-                                  } catch (error) {
-                                    console.error('Error rejecting borrow:', error);
-                                  }
-                                }}
-                                className="px-3 py-1 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700"
-                              >
-                                Tolak
-                              </button>
-                            </>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                          {borrow.status === 'pending' ? (
+                            <div className="flex items-center gap-2">
+                              <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                              <span>Menunggu Petugas</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">Selesai diproses</span>
                           )}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             </div>
           )}
@@ -1100,7 +1250,7 @@ function AdminDashboard() {
           {activeTab === 'reports' && (
             <div>
               <h2 className="text-xl font-semibold text-white mb-6">Laporan</h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-8">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-8">
                 {/* Diagram Garis: Stok Buku */}
                 <div className="bg-gray-900 rounded-lg p-6 border border-gray-700">
                   <h3 className="text-lg font-semibold mb-4 text-white">Stok Buku per Judul</h3>
@@ -1112,21 +1262,56 @@ function AdminDashboard() {
                   <canvas id="pieChart"></canvas>
                 </div>
               </div>
-              {/* Tombol Download Data PDF */}
-              <div className="mt-8 flex flex-col md:flex-row gap-4 justify-end">
-                <button
-                  onClick={handleDownloadPDF}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Download Data (PDF)
-                </button>
-                <button
-                  onClick={handleDownloadExcel}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                >
-                  Download Excel
-                </button>
+              
+              {/* Diagram Donat: Status Peminjaman */}
+              <div className="mt-8">
+                <div className="bg-gray-900 rounded-lg p-6 border border-gray-700 max-w-2xl mx-auto">
+                  <h3 className="text-lg font-semibold mb-4 text-white text-center">Status Peminjaman</h3>
+                  
+                  {/* Filter Tanggal */}
+                  <div className="mb-6 flex flex-wrap gap-4 justify-center items-center">
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-300">Period:</label>
+                      <select 
+                        value={dateFilter.period}
+                        onChange={(e) => setDateFilter(prev => ({ ...prev, period: e.target.value }))}
+                        className="bg-gray-800 text-white rounded px-3 py-1 text-sm border border-gray-600 focus:border-red-500 focus:outline-none"
+                      >
+                        <option value="all">All Time</option>
+                        <option value="month">This Month</option>
+                        <option value="year">This Year</option>
+                        <option value="custom">Custom Range</option>
+                      </select>
+                    </div>
+                    
+                    {dateFilter.period === 'custom' && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-300">From:</label>
+                          <input
+                            type="date"
+                            value={dateFilter.startDate}
+                            onChange={(e) => setDateFilter(prev => ({ ...prev, startDate: e.target.value }))}
+                            className="bg-gray-800 text-white rounded px-3 py-1 text-sm border border-gray-600 focus:border-red-500 focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <label className="text-sm text-gray-300">To:</label>
+                          <input
+                            type="date"
+                            value={dateFilter.endDate}
+                            onChange={(e) => setDateFilter(prev => ({ ...prev, endDate: e.target.value }))}
+                            className="bg-gray-800 text-white rounded px-3 py-1 text-sm border border-gray-600 focus:border-red-500 focus:outline-none"
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  
+                  <canvas id="statusPieChart"></canvas>
+                </div>
               </div>
+
             </div>
           )}
 
@@ -1182,22 +1367,14 @@ function AdminDashboard() {
                                 : 'Ditolak'}
                             </span>
                           </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {request.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => handleRequestAction(request.id, 'approve')}
-                                  className="text-green-400 hover:text-green-300 mr-3"
-                                >
-                                  Setujui
-                                </button>
-                                <button
-                                  onClick={() => handleRequestAction(request.id, 'reject')}
-                                  className="text-red-400 hover:text-red-300"
-                                >
-                                  Tolak
-                                </button>
-                              </>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
+                            {request.status === 'pending' ? (
+                              <div className="flex items-center gap-2">
+                                <div className="w-2 h-2 bg-yellow-500 rounded-full animate-pulse"></div>
+                                <span>Menunggu Petugas</span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-500">Diproses Petugas</span>
                             )}
                           </td>
                         </tr>
@@ -1525,6 +1702,121 @@ function AdminDashboard() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
                 Hapus Buku
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Download Modal */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-semibold text-white">Download Data Peminjaman</h3>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Pilih Periode Download:
+                </label>
+                <select
+                  value={downloadFilter.type}
+                  onChange={(e) => setDownloadFilter(prev => ({ 
+                    ...prev, 
+                    type: e.target.value,
+                    selectedDate: '',
+                    selectedMonth: '',
+                    selectedYear: ''
+                  }))}
+                  className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                >
+                  <option value="all">Semua Data</option>
+                  <option value="date">Berdasarkan Tanggal</option>
+                  <option value="month">Berdasarkan Bulan</option>
+                  <option value="year">Berdasarkan Tahun</option>
+                </select>
+              </div>
+
+              {/* Date Picker */}
+              {downloadFilter.type === 'date' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Pilih Tanggal:
+                  </label>
+                  <input
+                    type="date"
+                    value={downloadFilter.selectedDate}
+                    onChange={(e) => setDownloadFilter(prev => ({ ...prev, selectedDate: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Month Picker */}
+              {downloadFilter.type === 'month' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Pilih Bulan & Tahun:
+                  </label>
+                  <input
+                    type="month"
+                    value={downloadFilter.selectedMonth}
+                    onChange={(e) => setDownloadFilter(prev => ({ ...prev, selectedMonth: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Year Picker */}
+              {downloadFilter.type === 'year' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Pilih Tahun:
+                  </label>
+                  <select
+                    value={downloadFilter.selectedYear}
+                    onChange={(e) => setDownloadFilter(prev => ({ ...prev, selectedYear: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
+                  >
+                    <option value="">Pilih Tahun</option>
+                    {Array.from({ length: 10 }, (_, i) => {
+                      const year = new Date().getFullYear() - i;
+                      return (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="px-4 py-2 text-gray-300 hover:text-white transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleDownloadData}
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 rounded-lg flex items-center gap-2 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Download
               </button>
             </div>
           </div>

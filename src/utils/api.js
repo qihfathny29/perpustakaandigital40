@@ -168,16 +168,31 @@ export { getToken, setToken, removeToken, apiRequest };
 export const borrowAPI = {
   // Borrow a book (create borrow request)
   borrowBook: async (borrowData) => {
-    // Handle both old format (just bookId) and new format (object with id, borrowDate, dueDate)
-    const requestBody = typeof borrowData === 'object' && borrowData.id 
-      ? {
-          bookId: borrowData.id.toString(), // Keep as string to match database
-          request_date: borrowData.borrowDate,
-          due_date: borrowData.dueDate
-        }
-      : {
-          bookId: borrowData.toString() // Keep as string to match database
-        };
+    // Handle the new format with bookId, borrowDate, dueDate
+    let requestBody;
+    
+    if (typeof borrowData === 'object' && borrowData.bookId !== undefined) {
+      // New format from BookCard
+      requestBody = {
+        bookId: parseInt(borrowData.bookId), // Ensure it's a number
+        borrowDate: borrowData.borrowDate,
+        dueDate: borrowData.dueDate
+      };
+    } else if (typeof borrowData === 'object' && borrowData.id !== undefined) {
+      // Legacy format 
+      requestBody = {
+        bookId: parseInt(borrowData.id),
+        request_date: borrowData.borrowDate,
+        due_date: borrowData.dueDate
+      };
+    } else {
+      // Simple bookId only
+      requestBody = {
+        bookId: parseInt(borrowData)
+      };
+    }
+    
+    console.log('🌐 API - borrowBook requestBody:', requestBody);
     
     return await apiRequest('/borrow', {
       method: 'POST',
@@ -213,6 +228,38 @@ export const borrowAPI = {
   returnBook: async (borrowId) => {
     return await apiRequest(`/borrow/${borrowId}/return`, {
       method: 'PUT',
+    });
+  },
+
+  // Get borrow statistics (admin only)
+  getBorrowStats: async () => {
+    return await apiRequest('/borrow/stats');
+  },
+
+  // Get borrow status statistics (admin only)
+  getBorrowStatusStats: async (filter = null) => {
+    let url = '/borrow/status-stats';
+    if (filter) {
+      const params = new URLSearchParams(filter);
+      url += `?${params.toString()}`;
+    }
+    return await apiRequest(url);
+  },
+
+  // Get return trend statistics (admin only)
+  getReturnTrendStats: async () => {
+    return await apiRequest('/borrow/trend-stats');
+  },
+
+  // Direct borrow by petugas (skip approval process)
+  createDirectBorrow: async (bookId, userId, dueDate = null) => {
+    return await apiRequest('/borrow/direct', {
+      method: 'POST',
+      body: JSON.stringify({
+        bookId: bookId,
+        userId: userId,
+        dueDate: dueDate
+      }),
     });
   },
 

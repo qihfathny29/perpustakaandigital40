@@ -24,8 +24,10 @@ function Login() {
       if (result.success) {
         // Redirect based on user role
         const userRole = result.user.role;
-        if (userRole === 'admin' || userRole === 'petugas') {
+        if (userRole === 'admin') {
           navigate('/admin');
+        } else if (userRole === 'petugas') {
+          navigate('/petugas');
         } else {
           navigate('/dashboard');
         }

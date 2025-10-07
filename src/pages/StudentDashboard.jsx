@@ -2,7 +2,7 @@ import { useContext, useState, useEffect } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useBorrow } from '../context/BorrowContext';
 import { ReadingContext } from '../context/ReadingContext';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { books } from '../data/books';
 import BookCard from '../components/BookCard';
 import { userAPI, requestAPI, booksAPI } from '../utils/api';
@@ -36,8 +36,15 @@ function StudentDashboard() {
   console.log('🏠 StudentDashboard render - readingHistory length:', readingHistory.length);
   
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('peminjaman');
+  const location = useLocation();
+  
+  // Handle navigation state for tab switching and success messages
+  const [activeTab, setActiveTab] = useState(() => {
+    return location.state?.activeTab || 'peminjaman';
+  });
   const [isEditing, setIsEditing] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [messageType, setMessageType] = useState('success');
   const [showSuccess, setShowSuccess] = useState(false);
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [selectedBorrowId, setSelectedBorrowId] = useState(null);
@@ -144,6 +151,21 @@ function StudentDashboard() {
 
     loadBooks();
   }, []);
+
+  // Handle navigation state for success messages
+  useEffect(() => {
+    if (location.state?.message) {
+      setSuccessMessage(location.state.message);
+      setMessageType(location.state?.messageType || 'success');
+      // Clear the message after 3 seconds
+      setTimeout(() => {
+        setSuccessMessage('');
+      }, 3000);
+      
+      // Clear the navigation state to prevent message from showing again
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   // Handle image change - upload ke server
   const handleImageChange = async (e) => {
@@ -454,7 +476,9 @@ function StudentDashboard() {
         reason: '' // bisa ditambahkan input reason di modal nanti
       };
 
+      console.log('📤 Student - Creating request:', requestData);
       const response = await requestAPI.create(requestData);
+      console.log('📨 Student - Create response:', response);
       
       if (response.status === 'success') {
         // Refresh user requests
@@ -479,14 +503,19 @@ function StudentDashboard() {
   const renderRequestTab = () => {
     return (
       <div>
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-xl font-semibold text-white">Request Buku</h2>
-          <button
-            onClick={() => setShowRequestModal(true)}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-          >
-            Request Peminjaman Baru
-          </button>
+        <div className="flex flex-col gap-2 mb-6">
+          <div className="flex justify-between items-center">
+            <h2 className="text-xl font-semibold text-white">Request Buku Baru</h2>
+            <button
+              onClick={() => setShowRequestModal(true)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              + Request Buku Baru
+            </button>
+          </div>
+          <p className="text-sm text-gray-400">
+            Gunakan fitur ini untuk request buku baru yang belum tersedia atau stok habis di perpustakaan
+          </p>
         </div>
 
         <table className="w-full text-gray-300">
@@ -693,6 +722,56 @@ function StudentDashboard() {
               <p className="text-sm text-gray-400">Siswa</p>
             </div>
           </div>
+          {/* DEBUG: Test Overdue Buttons - Remove in production */}
+          <button
+            onClick={() => {
+              // Create fake overdue book for testing
+              const testOverdueBook = {
+                id: 999,
+                title: "Test Overdue Book",
+                borrowId: "test-999",
+                userId: user?.username,
+                status: "borrowed",
+                borrowDate: "2025-10-01T10:00:00Z",
+                dueDate: "2025-10-03T23:59:59Z", // 3 days ago = overdue
+              };
+              setOverdueBooks([testOverdueBook]);
+              setShowOverdueModal(true);
+            }}
+            className="w-full px-4 py-2 text-sm text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 transition-colors mb-1"
+          >
+            🧪 Test Fake Overdue
+          </button>
+
+          <button
+            onClick={() => {
+              // Make current borrowed books overdue by changing their dueDate
+              const currentBorrows = borrowedBooks.filter(book => 
+                book.userId === user?.username && book.status === 'borrowed'
+              );
+              
+              if (currentBorrows.length === 0) {
+                alert('No borrowed books found! Borrow a book first.');
+                return;
+              }
+
+              const yesterday = new Date();
+              yesterday.setDate(yesterday.getDate() - 1);
+              
+              const overdueBooks = currentBorrows.map(book => ({
+                ...book,
+                dueDate: yesterday.toISOString() // Make it overdue
+              }));
+              
+              setOverdueBooks(overdueBooks);
+              setShowOverdueModal(true);
+              console.log('🧪 Made books overdue:', overdueBooks);
+            }}
+            className="w-full px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors mb-2"
+          >
+            ⏰ Make Real Books Overdue
+          </button>
+          
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
@@ -704,6 +783,28 @@ function StudentDashboard() {
 
       {/* Main Content */}
       <div className={`md:ml-64 ml-0 p-2 sm:p-4 md:p-8 transition-all duration-300 ${showDigitalReader ? 'pointer-events-none select-none opacity-0' : ''}`}>
+        {/* Success/Error Message */}
+        {successMessage && (
+          <div className={`mb-6 p-4 rounded-lg backdrop-blur-sm ${
+            messageType === 'error' 
+              ? 'bg-red-600/20 border border-red-500/50 text-red-400' 
+              : 'bg-green-600/20 border border-green-500/50 text-green-400'
+          }`}>
+            <div className="flex items-center gap-2">
+              {messageType === 'error' ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              )}
+              {successMessage}
+            </div>
+          </div>
+        )}
+        
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-6 md:mb-8">
           <div className="flex items-center bg-gradient-to-br from-red-600/80 to-red-800/80 p-6 rounded-2xl border border-red-700 shadow-lg">

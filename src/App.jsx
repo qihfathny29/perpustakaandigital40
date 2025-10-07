@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import StudentDashboard from './pages/StudentDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import PetugasDashboard from './pages/PetugasDashboard';
 import ChatBotFloatingButton from './components/ChatBotFloatingButton';
 
 function App() {
@@ -18,11 +19,11 @@ function App() {
         <Route path="/" element={<BookCatalog />} />
         <Route
           path="/login"
-          element={user ? <Navigate to={user.role === 'admin' || user.role === 'petugas' ? '/admin' : '/dashboard'} /> : <Login />}
+          element={user ? <Navigate to={user.role === 'admin' ? '/admin' : user.role === 'petugas' ? '/petugas' : '/dashboard'} /> : <Login />}
         />
         <Route
           path="/register"
-          element={user ? <Navigate to={user.role === 'admin' || user.role === 'petugas' ? '/admin' : '/dashboard'} /> : <Register />}
+          element={user ? <Navigate to={user.role === 'admin' ? '/admin' : user.role === 'petugas' ? '/petugas' : '/dashboard'} /> : <Register />}
         />
         <Route
           path="/dashboard"
@@ -31,7 +32,7 @@ function App() {
               user.role === 'student' ? (
                 <StudentDashboard />
               ) : (
-                <Navigate to="/admin" replace />
+                <Navigate to={user.role === 'admin' ? '/admin' : '/petugas'} replace />
               )
             ) : (
               <Navigate to="/login" replace />
@@ -42,10 +43,24 @@ function App() {
           path="/admin"
           element={
             user ? (
-              user.role === 'admin' || user.role === 'petugas' ? (
+              user.role === 'admin' ? (
                 <AdminDashboard />
               ) : (
-                <Navigate to="/dashboard" replace />
+                <Navigate to={user.role === 'petugas' ? '/petugas' : '/dashboard'} replace />
+              )
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        />
+        <Route
+          path="/petugas"
+          element={
+            user ? (
+              user.role === 'petugas' ? (
+                <PetugasDashboard />
+              ) : (
+                <Navigate to={user.role === 'admin' ? '/admin' : '/dashboard'} replace />
               )
             ) : (
               <Navigate to="/login" replace />

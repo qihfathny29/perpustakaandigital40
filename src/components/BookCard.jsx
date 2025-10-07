@@ -1,15 +1,15 @@
 import { useState, useRef, useContext, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AuthContext } from '../context/AuthContext';
-import { useBorrow } from '../context/BorrowContext';
 import { ReadingContext } from '../context/ReadingContext';
+import { useBorrow } from '../context/BorrowContext';
 import PropTypes from 'prop-types';
 import { useInView } from '../hooks/useInView';
 
 function BookCard({ id, title, author, category, available, imageUrl, synopsis, stock }) {
   const { user } = useContext(AuthContext);
-  const { borrowBook } = useBorrow();
   const { updateReadingProgress, startReading } = useContext(ReadingContext);
+  const { borrowBook } = useBorrow();
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [showDigitalReader, setShowDigitalReader] = useState(false);
@@ -194,22 +194,48 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
         dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
       });
       
-      await borrowBook({
-        id: id,
+      // Use direct borrowBook (back to original system)
+      // Ensure bookId is a number, not object
+      const bookId = typeof id === 'object' ? (id.id || id) : id;
+      const numericBookId = parseInt(bookId);
+      
+      const borrowData = {
+        bookId: numericBookId,
         borrowDate: `${borrowDates.startDate}T${borrowDates.startTime}`,
         dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
-      });
+      };
+      
+      console.log('📤 BookCard - Direct borrowing:', borrowData);
+      console.log('📤 BookCard - Parsed bookId:', numericBookId, 'type:', typeof numericBookId);
+      const response = await borrowBook(borrowData);
+      console.log('📨 BookCard - Borrow response:', response);
+      
+      if (response.status !== 'success') {
+        throw new Error(response.message || 'Failed to borrow book');
+      }
       
       setShowBorrowConfirm(false);
-      navigate('/dashboard');
+      
+      // Navigate to dashboard with peminjaman tab active
+      navigate('/dashboard', { 
+        state: { 
+          activeTab: 'peminjaman',
+          message: 'Peminjaman berhasil! Menunggu persetujuan petugas.'
+        }
+      });
     } catch (error) {
       console.error('Error borrowing book:', error);
       
-      // Show user-friendly error message
-      const errorMessage = error.message || 'Terjadi kesalahan saat meminjam buku';
-      alert(errorMessage);
-      
       setShowBorrowConfirm(false);
+      
+      // Navigate to dashboard with error message
+      navigate('/dashboard', { 
+        state: { 
+          activeTab: 'peminjaman',
+          message: error.message || 'Terjadi kesalahan saat meminjam buku',
+          messageType: 'error'
+        }
+      });
     }
   };
 
