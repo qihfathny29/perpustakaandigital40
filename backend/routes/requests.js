@@ -18,8 +18,8 @@ router.post('/', createRequest);              // POST /api/requests - Create new
 router.get('/my-requests', getUserRequests);   // GET /api/requests/my-requests - Get user's requests
 
 // Admin/Petugas routes
-router.get('/', requireRole(['admin', 'petugas']), getAllRequests);                    // GET /api/requests - Get all requests
-router.put('/:id/status', requireRole(['admin', 'petugas']), updateRequestStatus);     // PUT /api/requests/:id/status - Update status
+router.get('/', requireRole(['admin', 'petugas']), getAllRequests);                    // GET /api/requests - Get all requests (both can read)
+router.put('/:id/status', requireRole(['petugas']), updateRequestStatus);              // PUT /api/requests/:id/status - Update status - ONLY PETUGAS
 
 // Delete routes (user can delete own, admin can delete any)
 router.delete('/:id', deleteRequest);          // DELETE /api/requests/:id - Delete request

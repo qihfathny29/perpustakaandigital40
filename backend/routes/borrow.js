@@ -5,7 +5,11 @@ const {
     getAllBorrows,
     approveBorrowRequest,
     rejectBorrowRequest,
-    returnBook
+    returnBook,
+    getBorrowStats,
+    getBorrowStatusStats,
+    getReturnTrendStats,
+    createDirectBorrow
 } = require('../controllers/borrowController');
 const { authMiddleware, requireRole } = require('../middleware/auth');
 
@@ -21,7 +25,11 @@ router.put('/:id/return', returnBook); // Return book - students can return thei
 
 // Admin/Petugas routes
 router.get('/', requireRole(['admin', 'petugas']), getAllBorrows); // Get all borrow requests
-router.put('/:id/approve', requireRole(['admin', 'petugas']), approveBorrowRequest); // Approve borrow
-router.put('/:id/reject', requireRole(['admin', 'petugas']), rejectBorrowRequest); // Reject borrow
+router.get('/stats', requireRole(['admin', 'petugas']), getBorrowStats); // Get borrow statistics
+router.get('/status-stats', requireRole(['admin', 'petugas']), getBorrowStatusStats); // Get status statistics
+router.get('/trend-stats', requireRole(['admin', 'petugas']), getReturnTrendStats); // Get trend statistics
+router.put('/:id/approve', requireRole(['petugas']), approveBorrowRequest); // Approve borrow - ONLY PETUGAS
+router.put('/:id/reject', requireRole(['petugas']), rejectBorrowRequest); // Reject borrow - ONLY PETUGAS
+router.post('/direct', requireRole(['admin', 'petugas']), createDirectBorrow); // Direct borrow by petugas
 
 module.exports = router;

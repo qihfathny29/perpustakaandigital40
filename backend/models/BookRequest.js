@@ -62,7 +62,7 @@ class BookRequest {
             const pool = await getConnection();
             const result = await pool.request()
                 .query(`
-                    SELECT br.*, u.username 
+                    SELECT br.*, u.username, u.full_name, u.nis
                     FROM book_requests br
                     LEFT JOIN users u ON br.user_id = u.id
                     ORDER BY br.created_at DESC
@@ -70,7 +70,9 @@ class BookRequest {
 
             return result.recordset.map(row => ({
                 ...new BookRequest(row),
-                username: row.username
+                username: row.username,
+                userName: row.full_name || row.username,
+                userNis: row.nis
             }));
         } catch (error) {
             console.error('Error finding all book requests:', error);
