@@ -7,6 +7,7 @@ const {
     getProfile,
     updateProfile,
     updateProfileImage,
+    searchStudents,
     upload
 } = require('../controllers/userController');
 const { authMiddleware, requireRole } = require('../middleware/auth');
@@ -24,10 +25,13 @@ router.put('/profile/image', upload.single('profileImage'), updateProfileImage);
 // Dashboard statistics - Admin/Petugas only
 router.get('/stats', requireRole(['admin', 'petugas']), getDashboardStats);
 
+// Search students (for petugas walk-in) - HARUS DI ATAS /:id
+router.get('/search', requireRole(['admin', 'petugas']), searchStudents);
+
 // Get all users - Admin/Petugas only
 router.get('/', requireRole(['admin', 'petugas']), getAllUsers);
 
-// Get specific user by ID - Admin/Petugas only
+// Get specific user by ID - Admin/Petugas only (HARUS DI BAWAH /search)
 router.get('/:id', requireRole(['admin', 'petugas']), getUserById);
 
 // Delete user - Admin only

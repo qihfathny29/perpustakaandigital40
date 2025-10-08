@@ -1,4 +1,5 @@
 const { getConnection } = require('../config/database');
+const sql = require('mssql');
 const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
@@ -105,6 +106,16 @@ const getAllUsers = async (req, res) => {
 const getUserById = async (req, res) => {
     try {
         const { id } = req.params;
+        
+        // Convert id to integer for bigint field
+        const userId = parseInt(id);
+        if (isNaN(userId)) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Invalid user ID format'
+            });
+        }
+        
         const pool = await getConnection();
 
         const userQuery = `
@@ -114,7 +125,7 @@ const getUserById = async (req, res) => {
         `;
 
         const userResult = await pool.request()
-            .input('id', id)
+            .input('id', userId)
             .query(userQuery);
 
         if (userResult.recordset.length === 0) {
@@ -375,6 +386,56 @@ const updateProfileImage = async (req, res) => {
         });
     }
 };
+// Search students for walk-in lending
+const searchStudents = async (req, res) => {
+    try {
+        const { query } = req.query; // ?query=nama_atau_nis
+        
+        console.log('🔍 Search Students Debug - Query:', query);
+        
+        if (!query || query.length < 2) {
+            return res.json({
+                status: 'success',
+                data: { students: [] }
+            });
+        }
+        
+        const pool = await getConnection();
+        
+        // Use parameterized query to safely handle search input
+        const searchPattern = `%${query}%`;
+        console.log('🔍 Search Students Debug - Pattern:', searchPattern);
+        
+        const result = await pool.request()
+            .input('searchPattern', sql.NVarChar, searchPattern)
+            .query(`
+                SELECT id, username, full_name, nis, class, email, role
+                FROM users 
+                WHERE role = 'student' 
+                AND (
+                    full_name LIKE @searchPattern OR 
+                    nis LIKE @searchPattern OR 
+                    username LIKE @searchPattern
+                )
+                ORDER BY full_name
+            `);
+            
+        console.log('🔍 Search Students Debug - Found:', result.recordset.length, 'students');
+        
+        res.json({
+            status: 'success',
+            data: { students: result.recordset }
+        });
+        
+    } catch (error) {
+        console.error('Search students error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
 
 module.exports = {
     getAllUsers,
@@ -384,5 +445,6 @@ module.exports = {
     getProfile,
     updateProfile,
     updateProfileImage,
+    searchStudents,
     upload
 };
