@@ -224,6 +224,13 @@ export const borrowAPI = {
     });
   },
   
+  // Confirm pickup (admin only)
+  confirmPickup: async (borrowId) => {
+    return await apiRequest(`/borrow/${borrowId}/pickup`, {
+      method: 'PUT',
+    });
+  },
+  
   // Return book
   returnBook: async (borrowId) => {
     return await apiRequest(`/borrow/${borrowId}/return`, {
@@ -294,6 +301,30 @@ export const borrowAPI = {
       method: 'PUT',
       body: JSON.stringify({
         rejection_reason: rejectionReason
+      }),
+    });
+  },
+
+  // Delete borrow record
+  deleteRecord: async (recordId) => {
+    return await apiRequest(`/borrow/record/${recordId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Clear all history (student only)
+  clearHistory: async () => {
+    return await apiRequest('/borrow/clear/history', {
+      method: 'DELETE',
+    });
+  },
+
+  // Bulk delete records
+  bulkDelete: async (recordIds) => {
+    return await apiRequest('/borrow/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({
+        recordIds: recordIds
       }),
     });
   }

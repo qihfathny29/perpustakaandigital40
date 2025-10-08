@@ -199,10 +199,21 @@ function BookCard({ id, title, author, category, available, imageUrl, synopsis, 
       const bookId = typeof id === 'object' ? (id.id || id) : id;
       const numericBookId = parseInt(bookId);
       
+      // 🔍 DETAILED DATETIME DEBUG
+      const borrowDateString = `${borrowDates.startDate}T${borrowDates.startTime}`;
+      const dueDateString = `${borrowDates.endDate}T${borrowDates.endTime}`;
+      
+      console.log('🔍 DATETIME DEBUG:');
+      console.log('  borrowDates.endDate:', borrowDates.endDate);
+      console.log('  borrowDates.endTime:', borrowDates.endTime);
+      console.log('  Combined dueDateString:', dueDateString);
+      console.log('  Parsed as Date:', new Date(dueDateString).toString());
+      console.log('  ISO String:', new Date(dueDateString).toISOString());
+      
       const borrowData = {
         bookId: numericBookId,
-        borrowDate: `${borrowDates.startDate}T${borrowDates.startTime}`,
-        dueDate: `${borrowDates.endDate}T${borrowDates.endTime}`
+        borrowDate: borrowDateString,
+        dueDate: dueDateString
       };
       
       console.log('📤 BookCard - Direct borrowing:', borrowData);

@@ -5,7 +5,7 @@ import { ReadingContext } from '../context/ReadingContext';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { books } from '../data/books';
 import BookCard from '../components/BookCard';
-import { userAPI, requestAPI, booksAPI } from '../utils/api';
+import { userAPI, requestAPI, booksAPI, borrowAPI } from '../utils/api';
 
 // Utility function untuk format tanggal Indonesia
 const formatDate = (dateString) => {
@@ -68,6 +68,8 @@ function StudentDashboard() {
     class: '',
     email: ''
   });
+
+  const [borrowHistory, setBorrowHistory] = useState([]);
 
   // Load profile data dari API saat component mount
   useEffect(() => {
@@ -328,6 +330,136 @@ function StudentDashboard() {
       </div>
     );
   };
+  // ...existing code...
+
+// Tambahkan functions ini di dalam component StudentDashboard
+// Update function handleDeleteRecord untuk refresh data yang benar
+
+const handleDeleteRecord = async (recordId) => {
+    if (!confirm('Yakin ingin menghapus record ini?')) return;
+    
+    try {
+        const response = await borrowAPI.deleteRecord(recordId);
+        
+        if (response.status === 'success') {
+            alert('Record berhasil dihapus');
+            // Update borrowHistory dan borrowedBooks
+            setBorrowHistory(prev => prev.filter(item => item.id !== recordId));
+            // Juga update context jika perlu
+            window.location.reload(); // Atau refresh data context
+        } else {
+            alert(response.message || 'Gagal menghapus record');
+        }
+    } catch (error) {
+        console.error('Delete error:', error);
+        alert('Gagal menghapus record');
+    }
+};
+
+const handleClearHistory = async () => {
+    if (!confirm('Yakin ingin menghapus SEMUA history yang sudah selesai?\n\nTindakan ini tidak dapat dibatalkan!')) return;
+    
+    try {
+        const response = await borrowAPI.clearHistory();
+        
+        if (response.status === 'success') {
+            alert(response.message);
+            // Remove completed records from local state
+            setBorrowHistory(prev => prev.filter(item => 
+                item.status !== 'returned' && item.status !== 'rejected'
+            ));
+            setSelectedRecords([]);
+        } else {
+            alert(response.message || 'Gagal menghapus history');
+        }
+    } catch (error) {
+        console.error('Clear history error:', error);
+        alert('Gagal menghapus history');
+    }
+};
+
+const handleBulkDelete = async () => {
+    const selectedIds = selectedRecords.filter(id => {
+        const record = borrowHistory.find(b => b.id === id);
+        return record && (record.status === 'returned' || record.status === 'rejected');
+    });
+    
+    if (selectedIds.length === 0) {
+        alert('Pilih minimal 1 record yang sudah selesai untuk dihapus');
+        return;
+    }
+    
+    if (!confirm(`Yakin ingin menghapus ${selectedIds.length} record yang dipilih?`)) return;
+    
+    try {
+        const response = await borrowAPI.bulkDelete(selectedIds);
+        
+        if (response.status === 'success') {
+            alert(response.message);
+            // Remove deleted records from local state
+            setBorrowHistory(prev => prev.filter(item => !selectedIds.includes(item.id)));
+            setSelectedRecords([]);
+        } else {
+            alert(response.message || 'Gagal menghapus records');
+        }
+    } catch (error) {
+        console.error('Bulk delete error:', error);
+        alert('Gagal menghapus records');
+    }
+};
+
+// State untuk checkbox selection
+const [selectedRecords, setSelectedRecords] = useState([]);
+
+const handleSelectRecord = (recordId) => {
+    setSelectedRecords(prev => 
+        prev.includes(recordId) 
+            ? prev.filter(id => id !== recordId)
+            : [...prev, recordId]
+    );
+};
+
+const handleSelectAll = () => {
+    const completedRecords = borrowHistory
+        .filter(record => record.status === 'returned' || record.status === 'rejected')
+        .map(record => record.id);
+        
+    if (selectedRecords.length === completedRecords.length) {
+        setSelectedRecords([]);
+    } else {
+        setSelectedRecords(completedRecords);
+    }
+};
+
+const getStatusBadgeClass = (status) => {
+    switch (status) {
+        case 'returned':
+            return 'bg-green-100 text-green-800';
+        case 'rejected':
+            return 'bg-red-100 text-red-800';
+        case 'borrowed':
+            return 'bg-blue-100 text-blue-800';
+        case 'pending':
+            return 'bg-yellow-100 text-yellow-800';
+        default:
+            return 'bg-gray-100 text-gray-800';
+    }
+};
+
+const getStatusText = (status) => {
+    switch (status) {
+        case 'returned':
+            return 'Selesai';
+        case 'rejected':
+            return 'Ditolak';
+        case 'borrowed':
+            return 'Dipinjam';
+        case 'pending':
+            return 'Menunggu';
+        default:
+            return status;
+    }
+};
 
   const renderReadingHistory = () => {
     console.log('🎯 renderReadingHistory called with readingHistory:', readingHistory);
@@ -565,16 +697,85 @@ function StudentDashboard() {
   useEffect(() => {
     if (!user) return;
     const now = new Date();
+    
+    console.log('🔍 OVERDUE DEBUG:');
+    console.log('Current user:', user.username);
+    console.log('Current time:', now);
+    console.log('All borrowed books:', borrowedBooks);
+    
+    // Since borrowedBooks comes from user's own API call, all books belong to current user
+    // No need to filter by userId - all books in borrowedBooks are already user's books
+    const userBooks = borrowedBooks; 
+    console.log('User books (all borrowed books belong to current user):', userBooks);
+    
+    // Check only first few books for debugging  
+    borrowedBooks.slice(0, 2).forEach((book, index) => {
+      const dueDateTime = new Date(book.dueDate);
+      const timeDiffMinutes = Math.round((now - dueDateTime) / (1000 * 60));
+      
+      console.log(`📖 Book ${index + 1}: ${book.title}`);
+      console.log(`   Status: "${book.status}"`);
+      console.log(`   Due date: ${book.dueDate}`);
+      console.log(`   Due date parsed: ${dueDateTime.toLocaleString('id-ID')}`);
+      console.log(`   Time diff (minutes): ${timeDiffMinutes}`);
+      console.log(`   Is overdue: ${timeDiffMinutes > 5} (with 5min grace period)`);
+    });
+    
+    // Check each book status and date with proper time comparison
+    userBooks.forEach(book => {
+      const dueDateTime = new Date(book.dueDate);
+      const currentDateTime = new Date();
+      const timeDiffMinutes = Math.round((currentDateTime - dueDateTime) / (1000 * 60));
+      
+      console.log(`📖 User Book: ${book.title}`);
+      console.log(`   Status: "${book.status}" (looking for "borrowed")`);
+      console.log(`   Due date: ${book.dueDate}`);
+      console.log(`   Due date parsed: ${dueDateTime.toLocaleString('id-ID')}`);
+      console.log(`   Current time: ${currentDateTime.toLocaleString('id-ID')}`);
+      console.log(`   Time diff (minutes): ${timeDiffMinutes}`);
+      console.log(`   Is overdue: ${timeDiffMinutes > 5} (with 5min grace period)`);
+      console.log(`   User match: ${book.userId === user.username}`);
+    });
+    
     const overdue = borrowedBooks
-      .filter(book =>
-        book.userId === user.username &&
-        book.status === 'borrowed' &&
-        new Date(book.dueDate) < now
-      );
+      .filter(book => {
+        // Since borrowedBooks are already filtered by user in API call, no need to check user match
+        const isUserMatch = true; // All books in borrowedBooks belong to current user
+        const isBorrowedStatus = book.status === 'borrowed' || book.status === 'dipinjam';
+        
+        // CRITICAL FIX: Proper overdue time calculation
+        const dueDateTime = new Date(book.dueDate);
+        const currentDateTime = new Date();
+        
+        // Add buffer time - consider overdue only after actual due time + 5 minutes grace period
+        const isOverdueTime = currentDateTime > new Date(dueDateTime.getTime() + (5 * 60 * 1000));
+        
+        console.log(`🔍 Filter result for ${book.title}:`, {
+          isUserMatch,
+          isBorrowedStatus, 
+          dueDateTime: dueDateTime.toLocaleString('id-ID'),
+          currentDateTime: currentDateTime.toLocaleString('id-ID'),
+          timeDiffMinutes: Math.round((currentDateTime - dueDateTime) / (1000 * 60)),
+          isOverdueTime,
+          finalResult: isUserMatch && isBorrowedStatus && isOverdueTime
+        });
+        
+        return isUserMatch && isBorrowedStatus && isOverdueTime;
+      });
+      
+    console.log('📋 Final overdue books:', overdue);
+    console.log('📋 Overdue count:', overdue.length);
+    
     setOverdueBooks(overdue);
     setShowOverdueModal(overdue.length > 0);
     // Jangan gunakan overdueBooks di dependency!
   }, [borrowedBooks, user]);
+
+  // Sync borrowHistory dengan borrowedBooks untuk fitur delete
+  useEffect(() => {
+    console.log('🔄 Syncing borrowHistory with borrowedBooks:', borrowedBooks);
+    setBorrowHistory(borrowedBooks);
+  }, [borrowedBooks]);
 
   const [showSidebar, setShowSidebar] = useState(false);
 
@@ -722,56 +923,6 @@ function StudentDashboard() {
               <p className="text-sm text-gray-400">Siswa</p>
             </div>
           </div>
-          {/* DEBUG: Test Overdue Buttons - Remove in production */}
-          <button
-            onClick={() => {
-              // Create fake overdue book for testing
-              const testOverdueBook = {
-                id: 999,
-                title: "Test Overdue Book",
-                borrowId: "test-999",
-                userId: user?.username,
-                status: "borrowed",
-                borrowDate: "2025-10-01T10:00:00Z",
-                dueDate: "2025-10-03T23:59:59Z", // 3 days ago = overdue
-              };
-              setOverdueBooks([testOverdueBook]);
-              setShowOverdueModal(true);
-            }}
-            className="w-full px-4 py-2 text-sm text-white bg-yellow-600 rounded-lg hover:bg-yellow-700 transition-colors mb-1"
-          >
-            🧪 Test Fake Overdue
-          </button>
-
-          <button
-            onClick={() => {
-              // Make current borrowed books overdue by changing their dueDate
-              const currentBorrows = borrowedBooks.filter(book => 
-                book.userId === user?.username && book.status === 'borrowed'
-              );
-              
-              if (currentBorrows.length === 0) {
-                alert('No borrowed books found! Borrow a book first.');
-                return;
-              }
-
-              const yesterday = new Date();
-              yesterday.setDate(yesterday.getDate() - 1);
-              
-              const overdueBooks = currentBorrows.map(book => ({
-                ...book,
-                dueDate: yesterday.toISOString() // Make it overdue
-              }));
-              
-              setOverdueBooks(overdueBooks);
-              setShowOverdueModal(true);
-              console.log('🧪 Made books overdue:', overdueBooks);
-            }}
-            className="w-full px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700 transition-colors mb-2"
-          >
-            ⏰ Make Real Books Overdue
-          </button>
-          
           <button
             onClick={handleLogout}
             className="w-full px-4 py-2 text-sm text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
@@ -818,6 +969,7 @@ function StudentDashboard() {
               <p className="text-3xl font-extrabold text-white">{borrowingStats.totalBorrowed}</p>
             </div>
           </div>
+          
           <div className="flex items-center bg-gradient-to-br from-green-600/80 to-green-800/80 p-6 rounded-2xl border border-green-700 shadow-lg">
             <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center mr-5">
               <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -829,6 +981,7 @@ function StudentDashboard() {
               <p className="text-3xl font-extrabold text-white">{borrowingStats.currentlyBorrowed}</p>
             </div>
           </div>
+          
           <div className="flex items-center bg-gradient-to-br from-yellow-600/80 to-yellow-800/80 p-6 rounded-2xl border border-yellow-700 shadow-lg">
             <div className="flex-shrink-0 w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center mr-5">
               <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -901,29 +1054,96 @@ function StudentDashboard() {
 
             {activeTab === 'riwayat' && (
               <div className="overflow-x-auto">
+                <div className="flex justify-between items-center mb-4 p-4 bg-gray-700/50 rounded-lg">
+                  <div className="flex gap-2">
+                    <button 
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm"
+                        onClick={handleClearHistory}
+                    >
+                        🗑️ Bersihkan Semua History
+                    </button>
+                    
+                    {selectedRecords.length > 0 && (
+                        <button 
+                            className="px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors text-sm"
+                            onClick={handleBulkDelete}
+                        >
+                            🗑️ Hapus Terpilih ({selectedRecords.length})
+                        </button>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center gap-2">
+                    <input 
+                        type="checkbox" 
+                        className="w-4 h-4"
+                        checked={selectedRecords.length > 0 && selectedRecords.length === borrowHistory.filter(r => r.status === 'returned' || r.status === 'rejected').length}
+                        onChange={handleSelectAll}
+                    />
+                    <label className="text-sm text-gray-300">Pilih Semua yang Selesai</label>
+                  </div>
+                </div>
+                
                 <table className="w-full text-gray-300 min-w-[600px]">
-                  <thead className="text-gray-400 border-b border-gray-700">
-                    <tr>
-                      <th className="text-left py-3">Judul Buku</th>
-                      <th className="text-left py-3">Tanggal Pinjam</th>
-                      <th className="text-left py-3">Tanggal Kembali</th>
-                      <th className="text-left py-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {returnedBooks.map(book => (
-                      <tr key={book.borrowId} className="border-b border-gray-700">
-                        <td className="py-3">{book.title}</td>
-                        <td className="py-3">{new Date(book.borrowDate).toLocaleDateString()}</td>
-                        <td className="py-3">{new Date(book.returnDate).toLocaleDateString()}</td>
-                        <td className="py-3">
-                          <span className="px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm">
-                            Selesai
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
+                    <thead className="text-gray-400 border-b border-gray-700">
+                        <tr>
+                            <th className="text-left py-3 px-2">
+                                <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4"
+                                    checked={selectedRecords.length > 0}
+                                    onChange={handleSelectAll}
+                                />
+                            </th>
+                            <th className="text-left py-3">Judul Buku</th>
+                            <th className="text-left py-3">Tanggal Pinjam</th>
+                            <th className="text-left py-3">Tanggal Kembali</th>
+                            <th className="text-left py-3">Status</th>
+                            <th className="text-left py-3">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {borrowHistory.length === 0 ? (
+                            <tr>
+                                <td colSpan={6} className="py-8 text-center text-gray-400">
+                                    Tidak ada riwayat peminjaman.
+                                </td>
+                            </tr>
+                        ) : (
+                            borrowHistory.map((borrow, index) => (
+                                <tr key={borrow.id || index} className="border-b border-gray-700">
+                                    <td className="py-3 px-2">
+                                        <input 
+                                            type="checkbox" 
+                                            className="w-4 h-4"
+                                            checked={selectedRecords.includes(borrow.id)}
+                                            onChange={() => handleSelectRecord(borrow.id)}
+                                            disabled={borrow.status !== 'returned' && borrow.status !== 'rejected'}
+                                        />
+                                    </td>
+                                    <td className="py-3">{borrow.title}</td>
+                                    <td className="py-3">{new Date(borrow.borrowDate).toLocaleDateString('id-ID')}</td>
+                                    <td className="py-3">{borrow.returnDate ? new Date(borrow.returnDate).toLocaleDateString('id-ID') : '-'}</td>
+                                    <td className="py-3">
+                                        <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeClass(borrow.status)}`}>
+                                            {getStatusText(borrow.status)}
+                                        </span>
+                                    </td>
+                                    <td className="py-3">
+                                        {(borrow.status === 'returned' || borrow.status === 'rejected') && (
+                                            <button 
+                                                className="px-3 py-1 bg-red-600 text-white rounded-lg text-sm hover:bg-red-700 transition-colors"
+                                                onClick={() => handleDeleteRecord(borrow.id)}
+                                                title="Hapus record ini"
+                                            >
+                                                🗑️
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            ))
+                        )}
+                    </tbody>
                 </table>
               </div>
             )}
@@ -1354,7 +1574,7 @@ function StudentDashboard() {
           <div className="bg-gray-800 rounded-xl p-8 max-w-lg w-full border border-red-600 shadow-2xl">
             <div className="text-center mb-6">
               <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-500/20 text-red-500 mb-4">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24  24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
               </div>

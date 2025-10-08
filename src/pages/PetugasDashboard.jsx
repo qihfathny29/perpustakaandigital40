@@ -143,10 +143,10 @@ function PetugasDashboard() {
         // Filter for pending borrow requests and format them
         pendingBorrows = borrowRequests.filter(b => b.status === 'pending').map(borrow => ({
           id: borrow.id,
-          bookTitle: borrow.book_title || borrow.title,
-          userName: borrow.user_name || borrow.username,
-          userNis: borrow.user_nis || 'N/A',
-          createdAt: borrow.created_at || borrow.borrow_date,
+          bookTitle: borrow.title,
+          userName: borrow.user?.fullName || borrow.user?.username || 'N/A',
+          userNis: borrow.user?.nis || 'N/A',
+          createdAt: borrow.createdAt,
           status: borrow.status,
           type: 'borrow' // Mark as borrow request vs book request
         }));
@@ -168,15 +168,25 @@ function PetugasDashboard() {
         
         const approvedBorrows = borrowRequests.filter(b => {
           console.log('🔍 Checking borrow:', b.id, 'status:', b.status, 'title:', b.title);
-          return b.status === 'borrowed'; // Status berubah menjadi 'borrowed' setelah di-approve
+          // Since DB doesn't allow 'approved' status, we'll consider newly 'borrowed' items as ready for pickup
+          // Check if it's borrowed today (recently approved)
+          if (b.status === 'borrowed' && b.updatedAt) {
+            const updatedDate = new Date(b.updatedAt);
+            const today = new Date();
+            const timeDiff = today - updatedDate;
+            const hoursDiff = timeDiff / (1000 * 60 * 60);
+            // Consider items approved within the last 24 hours as "ready for pickup"
+            return hoursDiff <= 24;
+          }
+          return false;
         }).map(borrow => {
           console.log('✅ Found approved borrow:', borrow.id, borrow.title);
           return {
             id: borrow.id,
-            bookTitle: borrow.book_title || borrow.title,
-            userName: borrow.user_name || borrow.user?.username || borrow.username,
-            userNis: borrow.user_nis || 'N/A',
-            approvedAt: borrow.updated_at || borrow.borrow_date,
+            bookTitle: borrow.title,
+            userName: borrow.user?.fullName || borrow.user?.username || 'N/A',
+            userNis: borrow.user?.nis || 'N/A',
+            approvedAt: borrow.updatedAt,
             type: 'borrow'
           };
         });
@@ -328,6 +338,23 @@ function PetugasDashboard() {
     } catch (error) {
       console.error('Error updating request:', error);
       setNotification('Gagal memproses request');
+    } finally {
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  const handlePickupConfirm = async (borrowId) => {
+    try {
+      // Since we can't use separate 'approved' status, we'll just remove from ready pickup list
+      // by updating the timestamp or mark as confirmed
+      setNotification('Pickup dikonfirmasi! Buku berhasil diambil siswa.');
+      
+      // Remove from ready pickup list
+      setReadyPickups(prevPickups => prevPickups.filter(p => p.id !== borrowId));
+      
+    } catch (error) {
+      console.error('Error confirming pickup:', error);
+      setNotification('Gagal konfirmasi pickup');
     } finally {
       setTimeout(() => setNotification(''), 3000);
     }
@@ -745,21 +772,19 @@ function PetugasDashboard() {
                               <p className="text-gray-300 mb-1">👤 Peminjam: {pickup.userName}</p>
                               <p className="text-gray-300 mb-1">🎓 NIS: {pickup.userNis}</p>
                               <div className="flex items-center gap-2 mt-2">
-                                <span className="px-3 py-1 bg-green-600/20 text-green-400 rounded-full text-sm font-medium border border-green-500/30">
-                                  ✅ Disetujui - Menunggu pengambilan
+                                <span className="px-3 py-1 bg-blue-600/20 text-blue-400 rounded-full text-sm font-medium border border-blue-500/30">
+                                  📚 Siap Diambil - Menunggu konfirmasi
                                 </span>
                               </div>
                             </div>
                             <button
-                              onClick={() => {
-                                setShowQRScanner(true);
-                              }}
+                              onClick={() => handlePickupConfirm(pickup.id)}
                               className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-300 shadow-lg hover:shadow-blue-500/25 flex items-center gap-2"
                             >
                               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 12V9m4.01 0h2M6 12a6 6 0 11-6 6 6 6 0 016-6z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
-                              Konfirm Pickup
+                              Buku Sudah Diambil
                             </button>
                           </div>
                         </div>

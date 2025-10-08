@@ -11,11 +11,6 @@ function BookCatalog() {
   const { user } = useContext(AuthContext);
   const { borrowedBooks } = useBorrow();
   
-  // Debug borrowedBooks
-  console.log('BookCatalog - borrowedBooks:', borrowedBooks);
-  console.log('BookCatalog - borrowedBooks type:', typeof borrowedBooks);
-  console.log('BookCatalog - is Array:', Array.isArray(borrowedBooks));
-  
   const [selectedCategory, setSelectedCategory] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
