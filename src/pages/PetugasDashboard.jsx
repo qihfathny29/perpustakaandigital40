@@ -2,6 +2,7 @@ import { useContext, useState, useEffect, useCallback } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { usersAPI, booksAPI, requestAPI, borrowAPI } from '../utils/api';
+import StudentSearch from '../components/StudentSearch';
 
 // QR Scanner Component (sementara mock, nanti akan kita implement)
 const QRScanner = ({ onScan, isActive, onClose }) => {
@@ -86,16 +87,21 @@ function PetugasDashboard() {
   const [activeTab, setActiveTab] = useState('quick-borrow');
   const [notification, setNotification] = useState('');
   const [books, setBooks] = useState([]);
-  const [students, setStudents] = useState([]);
+
   const [requests, setRequests] = useState([]);
   const [readyPickups, setReadyPickups] = useState([]);
   
   // QR Scanner states
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [scannedBook, setScannedBook] = useState(null);
-  const [selectedStudent, setSelectedStudent] = useState('');
-  const [searchStudent, setSearchStudent] = useState('');
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showScanner, setShowScanner] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Tambahkan state untuk book selection
+  const [selectedBook, setSelectedBook] = useState(null);
 
   // Statistics
   const [stats, setStats] = useState({
@@ -228,12 +234,7 @@ function PetugasDashboard() {
           setBooks(booksResponse.data.books);
         }
 
-        // Fetch students
-        const usersResponse = await usersAPI.getAll();
-        if (usersResponse.status === 'success') {
-          const studentList = usersResponse.data.users.filter(u => u.role === 'student');
-          setStudents(studentList);
-        }
+        // Students will be fetched by StudentSearch component as needed
 
         // Use fetchRequests to fetch requests and update stats automatically
         fetchRequests();
@@ -279,6 +280,29 @@ function PetugasDashboard() {
     }
   };
 
+  // Function untuk handle book scan (dari QR atau manual input)
+  const handleBookScan = async (bookId) => {
+    try {
+      const response = await fetch(`http://localhost:3001/api/books/${bookId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      const data = await response.json();
+      if (data.status === 'success') {
+        setSelectedBook(data.data.book);
+        setShowScanner(false);
+        alert(`Buku berhasil di-scan: ${data.data.book.title}`);
+      } else {
+        alert('Buku tidak ditemukan!');
+      }
+    } catch (error) {
+      console.error('Get book error:', error);
+      alert('Gagal mendapatkan info buku');
+    }
+  };
+
   const handleQuickBorrow = async () => {
     if (!scannedBook || !selectedStudent) {
       setNotification('Pilih buku dan siswa terlebih dahulu');
@@ -287,15 +311,17 @@ function PetugasDashboard() {
     }
 
     try {
+      // selectedStudent sekarang adalah object dari StudentSearch component
+      // Bukan lagi ID string, tapi object dengan properties: id, full_name, nis, etc.
       const response = await borrowAPI.createDirectBorrow(
         scannedBook.id,
-        selectedStudent
+        selectedStudent.id  // Gunakan selectedStudent.id
       );
 
       if (response.status === 'success') {
-        setNotification(`Peminjaman berhasil diproses! Borrow ID: ${response.data.borrowId}`);
+        setNotification(`✅ Peminjaman berhasil!\n\nBuku: ${scannedBook.title}\nSiswa: ${selectedStudent.full_name} (${selectedStudent.nis})\nBorrow ID: ${response.data.borrowId}`);
         setScannedBook(null);
-        setSelectedStudent('');
+        setSelectedStudent(null);
         
         // Refresh books data to update stock
         const booksResponse = await booksAPI.getAll();
@@ -311,6 +337,50 @@ function PetugasDashboard() {
       setNotification('Gagal memproses peminjaman: ' + (error.message || 'Unknown error'));
     } finally {
       setTimeout(() => setNotification(''), 3000);
+    }
+  };
+
+  const handleProcessDirectBorrow = async () => {
+    if (!selectedBook || !selectedStudent) {
+      alert('Pilih buku dan siswa terlebih dahulu');
+      return;
+    }
+    
+    setIsProcessing(true);
+    
+    try {
+      const response = await fetch('http://localhost:3001/api/borrow/direct', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          bookId: selectedBook.id,
+          userId: selectedStudent.id
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        alert(`✅ Peminjaman berhasil!\n\nBuku: ${selectedBook.title}\nSiswa: ${selectedStudent.full_name}\nTanggal Kembali: ${data.data.dueDate}`);
+        
+        // Reset form
+        setSelectedBook(null);
+        setSelectedStudent(null);
+        setShowScanner(false);
+        
+        // Refresh data
+        fetchRequests();
+      } else {
+        alert(data.message || 'Gagal memproses peminjaman');
+      }
+    } catch (error) {
+      console.error('Process borrow error:', error);
+      alert('Gagal memproses peminjaman');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -360,11 +430,7 @@ function PetugasDashboard() {
     }
   };
 
-  const filteredStudents = students.filter(student =>
-    student.fullName?.toLowerCase().includes(searchStudent.toLowerCase()) ||
-    student.nis?.includes(searchStudent) ||
-    student.username?.toLowerCase().includes(searchStudent.toLowerCase())
-  );
+
 
   const handleLogout = () => {
     logout();
@@ -629,35 +695,12 @@ function PetugasDashboard() {
                       )}
                     </div>
 
-                    {/* Student Selection */}
+                    {/* Student Selection - Using StudentSearch Component */}
                     <div className="bg-gradient-to-br from-gray-800 to-gray-900 border-2 border-dashed border-gray-600 rounded-xl p-6 shadow-xl">
-                      <h4 className="font-bold text-white mb-4 flex items-center gap-2">
-                        <span className="text-2xl">👤</span>
-                        Pilih Siswa:
-                      </h4>
-                      
-                      <div className="space-y-4">
-                        <input
-                          type="text"
-                          placeholder="Cari siswa (nama, NIS, username)..."
-                          value={searchStudent}
-                          onChange={(e) => setSearchStudent(e.target.value)}
-                          className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        />
-
-                        <select
-                          value={selectedStudent}
-                          onChange={(e) => setSelectedStudent(e.target.value)}
-                          className="w-full px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-                        >
-                          <option value="">Pilih Siswa...</option>
-                          {filteredStudents.map(student => (
-                            <option key={student.id} value={student.id}>
-                              {student.fullName} - {student.nis} ({student.class})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                      <StudentSearch 
+                        onStudentSelect={setSelectedStudent}
+                        selectedStudent={selectedStudent}
+                      />
                     </div>
                   </div>
 
@@ -840,6 +883,118 @@ function PetugasDashboard() {
                         Update status buku menjadi tersedia
                       </li>
                     </ol>
+                  </div>
+                </div>
+              )}
+
+              {/* Walk-in Lending Section - Update yang sudah ada */}
+              {activeTab === 'walk-in' && (
+                <div className="space-y-6">
+                  <div className="bg-gray-800 p-6 rounded-lg">
+                    <h2 className="text-2xl font-bold text-white mb-6 flex items-center">
+                      <span className="mr-3">📱</span>
+                      Peminjaman Langsung (Walk-in)
+                    </h2>
+                    
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* QR Scanner Section - Yang sudah ada */}
+                      <div className="bg-gray-700 p-6 rounded-lg">
+                        <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
+                          <span className="mr-2">📚</span>
+                          Scan QR Code Buku
+                        </h3>
+                        
+                        <QRScanner 
+                          onScan={handleBookScan}
+                          isActive={showScanner}
+                          onClose={() => setShowScanner(false)}
+                        />
+                        
+                        {!showScanner && (
+                          <button
+                            onClick={() => setShowScanner(true)}
+                            className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            📱 Scan QR Code Buku
+                          </button>
+                        )}
+                        
+                        {/* Selected Book Display */}
+                        {scannedBook && (
+                          <div className="mt-4 p-4 bg-blue-900/20 border border-blue-600 rounded-lg">
+                            <h4 className="text-blue-400 font-medium mb-2">📚 Buku yang Di-scan:</h4>
+                            <div className="text-white font-semibold">{scannedBook.title}</div>
+                            <div className="text-sm text-gray-300">
+                              Author: {scannedBook.author} | Stock: {scannedBook.stock}
+                            </div>
+                          </div>
+                        )}
+                        
+                        {!scannedBook && (
+                          <div className="mt-4 p-4 bg-gray-600 rounded-lg text-center text-gray-400">
+                            Klik "Scan QR Code Buku" untuk memulai
+                          </div>
+                        )}
+                      </div>
+                      
+                      {/* Student Search Section - REPLACE yang sudah ada */}
+                      <div className="bg-gray-700 p-6 rounded-lg">
+                        <StudentSearch 
+                          onStudentSelect={setSelectedStudent}
+                          selectedStudent={selectedStudent}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Process Button - Enhanced */}
+                    {scannedBook && selectedStudent && (
+                      <div className="mt-6 p-6 bg-green-900/20 border border-green-600 rounded-lg">
+                        <h4 className="text-green-400 font-medium mb-4">✅ Siap Diproses:</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                          <div>
+                            <div className="text-sm text-gray-300">Buku:</div>
+                            <div className="text-white font-semibold">{scannedBook.title}</div>
+                            <div className="text-xs text-gray-400">ID: {scannedBook.id}</div>
+                          </div>
+                          <div>
+                            <div className="text-sm text-gray-300">Siswa:</div>
+                            <div className="text-white font-semibold">{selectedStudent.full_name}</div>
+                            <div className="text-xs text-gray-400">NIS: {selectedStudent.nis} | Kelas: {selectedStudent.class}</div>
+                          </div>
+                        </div>
+                        
+                        <button
+                          onClick={handleProcessDirectBorrow}
+                          disabled={isProcessing}
+                          className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {isProcessing ? (
+                            <>
+                              <span className="inline-block animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+                              Memproses...
+                            </>
+                          ) : (
+                            '✅ Proses Peminjaman Langsung'
+                          )}
+                        </button>
+                      </div>
+                    )}
+                    
+                    {/* Reset Button */}
+                    {(scannedBook || selectedStudent) && (
+                      <div className="mt-4 flex justify-center">
+                        <button
+                          onClick={() => {
+                            setScannedBook(null);
+                            setSelectedStudent(null);
+                            setShowScanner(false);
+                          }}
+                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                        >
+                          🔄 Reset Form
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
