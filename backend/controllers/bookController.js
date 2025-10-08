@@ -15,6 +15,8 @@ const getAllBooks = async (req, res) => {
                 image_url,
                 stock,
                 available,
+                book_id,
+                qr_code_path,
                 created_at,
                 updated_at
             FROM books 
@@ -35,6 +37,8 @@ const getAllBooks = async (req, res) => {
                     imageUrl: book.image_url,
                     stock: book.stock,
                     available: book.available,
+                    bookId: book.book_id,
+                    qrCodePath: book.qr_code_path,
                     createdAt: book.created_at,
                     updatedAt: book.updated_at
                 }))
@@ -117,7 +121,7 @@ const getBookById = async (req, res) => {
 // Create new book
 const createBook = async (req, res) => {
     try {
-        const { title, author, category, synopsis, imageUrl, stock } = req.body;
+        const { title, author, category, synopsis, imageUrl, stock, book_id, qr_code_data } = req.body;
 
         // Validation
         if (!title || !author) {
@@ -130,11 +134,11 @@ const createBook = async (req, res) => {
         const pool = await getConnection();
 
         const query = `
-            INSERT INTO books (title, author, category, synopsis, image_url, stock, available) 
+            INSERT INTO books (title, author, category, synopsis, image_url, stock, available, book_id, qr_code_path) 
             OUTPUT INSERTED.id, INSERTED.title, INSERTED.author, INSERTED.category, 
                    INSERTED.synopsis, INSERTED.image_url, INSERTED.stock, INSERTED.available,
-                   INSERTED.created_at, INSERTED.updated_at
-            VALUES (@title, @author, @category, @synopsis, @imageUrl, @stock, @available)
+                   INSERTED.book_id, INSERTED.qr_code_path, INSERTED.created_at, INSERTED.updated_at
+            VALUES (@title, @author, @category, @synopsis, @imageUrl, @stock, @available, @bookId, @qrCodePath)
         `;
 
         const bookStock = parseInt(stock) || 0;
@@ -148,6 +152,8 @@ const createBook = async (req, res) => {
             .input('imageUrl', imageUrl || '')
             .input('stock', bookStock)
             .input('available', isAvailable)
+            .input('bookId', book_id || null)
+            .input('qrCodePath', qr_code_data || null)
             .query(query);
 
         const newBook = result.recordset[0];
@@ -165,6 +171,8 @@ const createBook = async (req, res) => {
                     imageUrl: newBook.image_url,
                     stock: newBook.stock,
                     available: newBook.available,
+                    bookId: newBook.book_id,
+                    qrCodePath: newBook.qr_code_path,
                     createdAt: newBook.created_at,
                     updatedAt: newBook.updated_at
                 }
