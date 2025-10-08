@@ -1,4 +1,5 @@
 const { getConnection } = require('../config/database');
+const sql = require('mssql');
 
 // Create new borrow request
 const createBorrowRequest = async (req, res) => {
@@ -86,14 +87,90 @@ const createBorrowRequest = async (req, res) => {
         // Generate unique borrow ID
         const borrowId = 'BRW' + Date.now() + Math.random().toString(36).substr(2, 5).toUpperCase();
         
-        // Use provided dates from either old or new format
-        const borrowDate = frontendBorrowDate || request_date ? new Date(frontendBorrowDate || request_date) : new Date();
-        const dueDate = frontendDueDate || due_date ? new Date(frontendDueDate || due_date) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+        // FIXED: Properly handle datetime from frontend - USE ORIGINAL DATETIME STRINGS
+        console.log('=== DATE PROCESSING V2 ===');
+        console.log('frontendBorrowDate received:', frontendBorrowDate);
+        console.log('frontendDueDate received:', frontendDueDate);
+        console.log('request_date received:', request_date);
+        console.log('due_date received:', due_date);
         
-        console.log('Final processed borrowDate:', borrowDate);
-        console.log('Final processed dueDate:', dueDate);
+        // CRITICAL FIX V6: Force exact local datetime WITHOUT timezone conversion
+        let borrowDateForSQL, dueDateForSQL;
         
-        // Create borrow request
+        // Helper function to create exact local datetime without timezone conversion
+        const convertToLocalDateTime = (dateString) => {
+            if (!dateString) return null;
+            console.log('🔄 V6 Converting dateString (no timezone conversion):', dateString);
+            
+            // Parse manually to avoid timezone conversion issues
+            if (dateString.includes('T')) {
+                let [datePart, timePart] = dateString.split('T');
+                // Add seconds if not present
+                if (timePart && timePart.split(':').length === 2) {
+                    timePart += ':00';
+                }
+                
+                // Parse date components
+                const [year, month, day] = datePart.split('-').map(Number);
+                const [hour, minute, second] = timePart ? timePart.split(':').map(Number) : [0, 0, 0];
+                
+                // Create Date object WITHOUT timezone conversion using local constructor
+                const localDate = new Date(year, month - 1, day, hour, minute, second);
+                console.log('📅 V6 Local Date object (no UTC):', localDate);
+                console.log('📅 V6 Date components:', { year, month: month-1, day, hour, minute, second });
+                
+                return localDate;
+            }
+            
+            // Fallback for other formats
+            return new Date(dateString);
+        };
+        
+        if (frontendBorrowDate || request_date) {
+            borrowDateForSQL = convertToLocalDateTime(frontendBorrowDate || request_date);
+            console.log('🚀 V6 Using borrowDate Local DateTime:', borrowDateForSQL);
+        } else {
+            borrowDateForSQL = new Date();
+            console.log('🚀 V6 Generated borrowDate current time:', borrowDateForSQL);
+        }
+        
+        if (frontendDueDate || due_date) {
+            dueDateForSQL = convertToLocalDateTime(frontendDueDate || due_date);
+            console.log('🚀 V6 Using dueDate Local DateTime:', dueDateForSQL);
+        } else {
+            // Default: current time + 8 hours (normal library usage)
+            dueDateForSQL = new Date(Date.now() + 8 * 60 * 60 * 1000);
+            console.log('🚀 V6 Generated dueDate +8 hours:', dueDateForSQL);
+        }
+        
+        // 🔧 CRITICAL FIX: If datetime conversion failed, use current time + hours
+        if (dueDateForSQL.getHours() === 0 && dueDateForSQL.getMinutes() === 0) {
+            console.log('⚠️ WARNING: Detected midnight datetime, fixing to current time + duration');
+            const now = new Date();
+            dueDateForSQL = new Date(now.getTime() + 8 * 60 * 60 * 1000); // +8 hours from now
+            console.log('🔧 FIXED dueDate to:', dueDateForSQL);
+        }
+        
+        console.log('Final SQL borrowDate V6:', borrowDateForSQL);
+        console.log('Final SQL dueDate V6:', dueDateForSQL);
+        
+        // 🔍 CRITICAL DEBUG: Check exact SQL Server input values
+        console.log('🔍 SQL Server Input Debug:');
+        console.log('   borrowDate for SQL:', borrowDateForSQL.toISOString());
+        console.log('   dueDate for SQL:', dueDateForSQL.toISOString());
+        console.log('   borrowDate local string:', borrowDateForSQL.toString());
+        console.log('   dueDate local string:', dueDateForSQL.toString());
+        console.log('=== END DATE PROCESSING V6 ===');
+        
+        // Create borrow request - USE EXPLICIT STRING FORMAT FOR SQL SERVER
+        // Convert to SQL Server compatible format: 'YYYY-MM-DD HH:MM:SS'
+        const borrowDateSQL = borrowDateForSQL.toISOString().slice(0, 19).replace('T', ' ');
+        const dueDateSQL = dueDateForSQL.toISOString().slice(0, 19).replace('T', ' ');
+        
+        console.log('🔍 SQL Server String Format:');
+        console.log('   borrowDateSQL:', borrowDateSQL);
+        console.log('   dueDateSQL:', dueDateSQL);
+        
         const insertResult = await pool.request()
             .input('borrowId', borrowId)
             .input('userId', userId)
@@ -101,8 +178,8 @@ const createBorrowRequest = async (req, res) => {
             .input('title', book.title)
             .input('author', book.author)
             .input('category', book.category)
-            .input('borrowDate', borrowDate)
-            .input('dueDate', dueDate)
+            .input('borrowDate', sql.VarChar, borrowDateSQL)
+            .input('dueDate', sql.VarChar, dueDateSQL)
             .input('status', 'pending')
             .query(`
                 INSERT INTO borrowed_books (
@@ -110,7 +187,7 @@ const createBorrowRequest = async (req, res) => {
                     borrow_date, due_date, status, created_at, updated_at
                 ) VALUES (
                     @borrowId, @userId, @bookId, @title, @author, @category,
-                    @borrowDate, @dueDate, @status, GETDATE(), GETDATE()
+                    CONVERT(DATETIME, @borrowDate, 120), CONVERT(DATETIME, @dueDate, 120), @status, GETDATE(), GETDATE()
                 )
             `);
             
@@ -123,7 +200,7 @@ const createBorrowRequest = async (req, res) => {
             data: {
                 borrowId,
                 bookTitle: book.title,
-                dueDate: dueDate.toISOString()
+                dueDate: dueDateForSQL
             }
         });
         
@@ -202,7 +279,7 @@ const getAllBorrows = async (req, res) => {
                     bb.id, bb.borrow_id, bb.book_id, bb.title, bb.author, bb.category,
                     bb.borrow_date, bb.due_date, bb.return_date, bb.status,
                     bb.created_at, bb.updated_at,
-                    u.username
+                    u.username, u.full_name, u.nis
                 FROM borrowed_books bb
                 JOIN users u ON bb.user_id = u.id
                 ORDER BY bb.created_at DESC
@@ -225,7 +302,9 @@ const getAllBorrows = async (req, res) => {
                     createdAt: borrow.created_at,
                     updatedAt: borrow.updated_at,
                     user: {
-                        username: borrow.username
+                        username: borrow.username,
+                        fullName: borrow.full_name,
+                        nis: borrow.nis
                     }
                 }))
             }
@@ -278,7 +357,7 @@ const approveBorrowRequest = async (req, res) => {
         await transaction.begin();
         
         try {
-            // Update borrow status to borrowed
+            // Update borrow status to borrowed 
             await transaction.request()
                 .input('id', id)
                 .query(`
@@ -296,9 +375,7 @@ const approveBorrowRequest = async (req, res) => {
                         available = CASE WHEN stock - 1 <= 0 THEN 0 ELSE 1 END,
                         updated_at = GETDATE()
                     WHERE id = @bookId
-                `);
-                
-            await transaction.commit();
+                `);            await transaction.commit();
             
             res.json({
                 status: 'success',
@@ -348,6 +425,85 @@ const rejectBorrowRequest = async (req, res) => {
         
     } catch (error) {
         console.error('Reject borrow request error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+// Confirm pickup (Admin only) - Change from 'approved' to 'borrowed'
+const confirmPickup = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const pool = await getConnection();
+        
+        // Get approved borrow request
+        const borrowResult = await pool.request()
+            .input('id', id)
+            .query('SELECT * FROM borrowed_books WHERE id = @id AND status = \'approved\'');
+            
+        if (borrowResult.recordset.length === 0) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Permintaan pickup tidak ditemukan atau sudah diproses'
+            });
+        }
+        
+        const borrow = borrowResult.recordset[0];
+        
+        // Check book availability
+        const bookResult = await pool.request()
+            .input('bookId', borrow.book_id)
+            .query('SELECT stock FROM books WHERE id = @bookId AND available = 1');
+            
+        if (bookResult.recordset.length === 0 || bookResult.recordset[0].stock <= 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Buku tidak tersedia'
+            });
+        }
+        
+        // Start transaction
+        const transaction = pool.transaction();
+        await transaction.begin();
+        
+        try {
+            // Update borrow status to borrowed (actual pickup confirmed)
+            await transaction.request()
+                .input('id', id)
+                .query(`
+                    UPDATE borrowed_books 
+                    SET status = 'borrowed', updated_at = GETDATE()
+                    WHERE id = @id
+                `);
+                
+            // Now decrease book stock since pickup is confirmed
+            await transaction.request()
+                .input('bookId', borrow.book_id)
+                .query(`
+                    UPDATE books 
+                    SET stock = stock - 1,
+                        available = CASE WHEN stock - 1 <= 0 THEN 0 ELSE 1 END,
+                        updated_at = GETDATE()
+                    WHERE id = @bookId
+                `);
+                
+            await transaction.commit();
+            
+            res.json({
+                status: 'success',
+                message: 'Pickup berhasil dikonfirmasi'
+            });
+            
+        } catch (error) {
+            await transaction.rollback();
+            throw error;
+        }
+        
+    } catch (error) {
+        console.error('Confirm pickup error:', error);
         res.status(500).json({
             status: 'error',
             message: 'Internal server error',
@@ -765,15 +921,208 @@ const createDirectBorrow = async (req, res) => {
     }
 };
 
+// ...existing code...
+
+// Delete borrow record (Student can only delete their own completed records)
+const deleteBorrowRecord = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.user.id;
+        const userRole = req.user.role;
+        
+        console.log('=== Delete Borrow Record Debug ===');
+        console.log('Record ID:', id);
+        console.log('User ID:', userId);
+        console.log('User Role:', userRole);
+        
+        const pool = await getConnection();
+        
+        let whereClause = 'WHERE id = @id';
+        let request = pool.request().input('id', id);
+        
+        // Students can only delete their own records, admin/petugas can delete any
+        if (userRole === 'student') {
+            whereClause += ' AND user_id = @userId AND status IN (\'returned\', \'rejected\')';
+            request = request.input('userId', userId);
+        } else if (userRole === 'admin' || userRole === 'petugas') {
+            // Admin/petugas can delete any completed record
+            whereClause += ' AND status IN (\'returned\', \'rejected\')';
+        } else {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Anda tidak memiliki akses untuk menghapus record'
+            });
+        }
+        
+        // Check if record exists and meets criteria
+        const checkResult = await request.query(`
+            SELECT * FROM borrowed_books ${whereClause}
+        `);
+        
+        if (checkResult.recordset.length === 0) {
+            return res.status(404).json({
+                status: 'error',
+                message: userRole === 'student' ? 
+                    'Record tidak ditemukan, bukan milik Anda, atau belum selesai' :
+                    'Record tidak ditemukan atau belum selesai'
+            });
+        }
+        
+        // Delete the record - create new request with all needed parameters
+        let deleteRequest = pool.request().input('id', id);
+        
+        // Add userId parameter if needed for student role
+        if (userRole === 'student') {
+            deleteRequest = deleteRequest.input('userId', userId);
+        }
+        
+        const deleteResult = await deleteRequest.query(`DELETE FROM borrowed_books ${whereClause}`);
+            
+        if (deleteResult.rowsAffected[0] === 0) {
+            return res.status(404).json({
+                status: 'error',
+                message: 'Gagal menghapus record'
+            });
+        }
+        
+        console.log('Record deleted successfully:', id);
+        
+        res.json({
+            status: 'success',
+            message: 'Record berhasil dihapus'
+        });
+        
+    } catch (error) {
+        console.error('Delete borrow record error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+// Clear all completed records for current user (Student only)
+const clearMyHistory = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const userRole = req.user.role;
+        
+        if (userRole !== 'student') {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Fitur ini khusus untuk student'
+            });
+        }
+        
+        console.log('=== Clear History Debug ===');
+        console.log('User ID:', userId);
+        
+        const pool = await getConnection();
+        
+        // Delete all completed records for this user
+        const result = await pool.request()
+            .input('userId', userId)
+            .query(`
+                DELETE FROM borrowed_books 
+                WHERE user_id = @userId AND status IN ('returned', 'rejected')
+            `);
+        
+        console.log('Cleared records count:', result.rowsAffected[0]);
+        
+        res.json({
+            status: 'success',
+            message: `Berhasil menghapus ${result.rowsAffected[0]} record dari history Anda`,
+            deletedCount: result.rowsAffected[0]
+        });
+        
+    } catch (error) {
+        console.error('Clear history error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
+// Bulk delete selected records
+const bulkDeleteRecords = async (req, res) => {
+    try {
+        const { recordIds } = req.body;
+        const userId = req.user.id;
+        const userRole = req.user.role;
+        
+        if (!recordIds || !Array.isArray(recordIds) || recordIds.length === 0) {
+            return res.status(400).json({
+                status: 'error',
+                message: 'Record IDs harus berupa array dan tidak boleh kosong'
+            });
+        }
+        
+        console.log('=== Bulk Delete Debug ===');
+        console.log('User ID:', userId);
+        console.log('User Role:', userRole);
+        console.log('Record IDs:', recordIds);
+        
+        const pool = await getConnection();
+        
+        let whereClause = 'WHERE id IN (';
+        const placeholders = recordIds.map((_, index) => `@id${index}`).join(',');
+        whereClause += placeholders + ')';
+        
+        let request = pool.request();
+        recordIds.forEach((id, index) => {
+            request = request.input(`id${index}`, id);
+        });
+        
+        // Students can only delete their own completed records
+        if (userRole === 'student') {
+            whereClause += ' AND user_id = @userId AND status IN (\'returned\', \'rejected\')';
+            request = request.input('userId', userId);
+        } else if (userRole === 'admin' || userRole === 'petugas') {
+            whereClause += ' AND status IN (\'returned\', \'rejected\')';
+        } else {
+            return res.status(403).json({
+                status: 'error',
+                message: 'Anda tidak memiliki akses untuk bulk delete'
+            });
+        }
+        
+        const deleteQuery = `DELETE FROM borrowed_books ${whereClause}`;
+        console.log('Bulk delete query:', deleteQuery);
+        
+        const result = await request.query(deleteQuery);
+        
+        res.json({
+            status: 'success',
+            message: `Berhasil menghapus ${result.rowsAffected[0]} record`,
+            deletedCount: result.rowsAffected[0]
+        });
+        
+    } catch (error) {
+        console.error('Bulk delete error:', error);
+        res.status(500).json({
+            status: 'error',
+            message: 'Internal server error',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     createBorrowRequest,
     getUserBorrows,
     getAllBorrows,
     approveBorrowRequest,
     rejectBorrowRequest,
+    confirmPickup,
     returnBook,
     getBorrowStats,
     getBorrowStatusStats,
     getReturnTrendStats,
-    createDirectBorrow
+    createDirectBorrow,
+    deleteBorrowRecord,
+    clearMyHistory,
+    bulkDeleteRecords
 };
