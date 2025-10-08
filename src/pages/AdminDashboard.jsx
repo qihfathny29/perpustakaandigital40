@@ -6,6 +6,27 @@ import Chart from 'chart.js/auto';
 import { useBorrow } from '../context/BorrowContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import JsBarcode from 'jsbarcode';
+
+// Barcode Component
+const BarcodeComponent = ({ value }) => {
+  const canvasRef = useCallback((canvas) => {
+    if (canvas && value) {
+      JsBarcode(canvas, value, {
+        format: "CODE128",
+        width: 2,
+        height: 80,
+        displayValue: true,
+        fontSize: 12,
+        textMargin: 5,
+        background: "#ffffff",
+        lineColor: "#000000"
+      });
+    }
+  }, [value]);
+
+  return <canvas ref={canvasRef}></canvas>;
+};
 
 // Utility function untuk format tanggal Indonesia
 const formatDate = (dateString) => {
@@ -37,7 +58,9 @@ function AdminDashboard() {
     synopsis: '',
     category: 'Fiksi',
     imageUrl: '',
-    stock: 1 // Add initial stock value
+    stock: 1, // Add initial stock value
+    book_id: '', // Add book ID for barcode generation
+    qr_code_data: '' // Add barcode data (reusing same field name)
   });
   const [editingBook, setEditingBook] = useState(null);
   const [showConfirmDelete, setShowConfirmDelete] = useState(null);
@@ -90,6 +113,55 @@ function AdminDashboard() {
   });
 
   const categories = ['Fiksi', 'Non-Fiksi', 'Pendidikan', 'Novel'];
+
+  // Barcode generation functions
+  const generateBarcodeData = (bookId) => {
+    // For barcode, we just use the book ID directly
+    return bookId;
+  };
+
+  const generateBookId = () => {
+    // Generate unique book ID (timestamp + random) - format for barcode
+    const timestamp = Date.now().toString().slice(-6); // Last 6 digits
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `${timestamp}${random}`; // 9 digit number for CODE128
+  };
+
+  const handleGenerateBarcode = () => {
+    // Gunakan Book ID yang sudah diketik user, atau generate baru jika kosong
+    const bookId = newBook.book_id.trim() || generateBookId();
+    const barcodeData = generateBarcodeData(bookId);
+    setNewBook({
+      ...newBook,
+      book_id: bookId,
+      qr_code_data: barcodeData
+    });
+  };
+
+  const downloadBarcode = async (bookId, barcodeData) => {
+    try {
+      const canvas = document.createElement('canvas');
+      JsBarcode(canvas, barcodeData, {
+        format: "CODE128",
+        width: 2,
+        height: 100,
+        displayValue: true,
+        fontSize: 14,
+        textMargin: 5,
+        background: "#ffffff",
+        lineColor: "#000000"
+      });
+      
+      const link = document.createElement('a');
+      link.download = `Barcode-${bookId}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    } catch (error) {
+      console.error('Error generating barcode:', error);
+      setNotification('Gagal generate barcode');
+      setTimeout(() => setNotification(''), 3000);
+    }
+  };
 
   // Function untuk fetch users dari API
   const fetchUsers = async () => {
@@ -168,7 +240,9 @@ function AdminDashboard() {
           synopsis: '',
           category: 'Fiksi',
           imageUrl: '',
-          stock: 1
+          stock: 1,
+          book_id: '',
+          qr_code_data: ''
         });
         setNotification('Buku berhasil ditambahkan!');
         fetchBooks(); // Refresh data
@@ -1032,6 +1106,54 @@ function AdminDashboard() {
                         onChange={(e) => setNewBook({...newBook, stock: parseInt(e.target.value)})}
                         className="w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
                       />
+                    </div>
+                    
+                    {/* Book ID and Barcode Section */}
+                    <div className="md:col-span-2 border-t border-gray-600 pt-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-300 mb-2">
+                            Book ID (untuk Barcode)
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={newBook.book_id}
+                              onChange={(e) => setNewBook({...newBook, book_id: e.target.value})}
+                              placeholder="Ketik Book ID atau klik 'Generate Barcode'"
+                              className="flex-1 p-2 bg-gray-700 border border-gray-600 rounded text-white focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                            />
+                            <button
+                              type="button"
+                              onClick={handleGenerateBarcode}
+                              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors whitespace-nowrap"
+                            >
+                              Generate Barcode
+                            </button>
+                          </div>
+                        </div>
+                        
+                        {/* Barcode Preview */}
+                        {newBook.qr_code_data && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-300 mb-2">
+                              Preview Barcode
+                            </label>
+                            <div className="bg-white p-4 rounded-lg inline-block">
+                              <BarcodeComponent value={newBook.qr_code_data} />
+                            </div>
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() => downloadBarcode(newBook.book_id, newBook.qr_code_data)}
+                                className="text-sm px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                              >
+                                Download Barcode
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="mt-6 flex justify-end">
