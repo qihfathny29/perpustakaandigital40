@@ -16,7 +16,19 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: [
+        'http://localhost:5173',
+        'https://localhost:5173',
+        'http://192.168.1.100:5173',
+        'http://172.22.5.120:5173',
+        'http://172.22.7.80:5173',    // ← IP baru
+        'https://172.22.7.80:5173',   // ← HTTPS version
+        /https:\/\/.*\.ngrok\.io$/,  // ← Allow all ngrok domains
+        /https:\/\/.*\.ngrok-free\.app$/  // ← New ngrok domains
+    ],
+    credentials: true 
+}));
 app.use(express.json({ limit: '50mb' })); // Increase limit for base64 images
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -88,9 +100,21 @@ async function startServer() {
         const Testimonial = require('./models/Testimonial');
         await Testimonial.createTable();
         
-        app.listen(PORT, () => {
+        app.listen(PORT, '0.0.0.0', () => {
             console.log('🚀 Server is running!');
             console.log(`📍 Local: http://localhost:${PORT}`);
+            
+            // Show network interfaces
+            const os = require('os');
+            const networkInterfaces = os.networkInterfaces();
+            Object.keys(networkInterfaces).forEach(interfaceName => {
+                networkInterfaces[interfaceName].forEach(netInterface => {
+                    if (netInterface.family === 'IPv4' && !netInterface.internal) {
+                        console.log(`📱 Network: http://${netInterface.address}:${PORT}`);
+                    }
+                });
+            });
+            
             console.log(`🗃️  Database: ${process.env.DB_DATABASE}`);
             console.log(`⚡ Environment: ${process.env.NODE_ENV || 'development'}`);
             console.log('\n📋 Available endpoints:');

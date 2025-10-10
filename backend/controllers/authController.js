@@ -5,32 +5,19 @@ const { getConnection } = require('../config/database');
 // Register user
 const register = async (req, res) => {
     try {
-        const { username, password, role } = req.body;
+        const { username, password } = req.body;
 
         // Validation
-        if (!username || !password || !role) {
+        if (!username || !password) {
             return res.status(400).json({
                 status: 'error',
-                message: 'Username, password, and role are required'
+                message: 'Username and password are required'
             });
         }
 
-        // Validate role - Admin tidak bisa dibuat via register
-        const validRoles = ['student', 'petugas'];
-        if (!validRoles.includes(role)) {
-            return res.status(400).json({
-                status: 'error',
-                message: 'Invalid role. Only student and petugas are allowed for registration'
-            });
-        }
-
-        // Extra security: Block admin role creation via API
-        if (role === 'admin') {
-            return res.status(403).json({
-                status: 'error',
-                message: 'Admin accounts cannot be created through registration'
-            });
-        }
+        // Role is automatically set to 'student' for all registrations
+        // Admin and petugas accounts must be created directly in the database
+        const role = 'student';
 
         const pool = await getConnection();
 
