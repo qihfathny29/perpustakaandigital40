@@ -65,12 +65,12 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const register = async (username, password, role = 'student') => {
+  const register = async (username, password) => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await authAPI.register(username, password, role);
+      const response = await authAPI.register(username, password);
       
       if (response.status === 'success') {
         // DON'T auto-login after register

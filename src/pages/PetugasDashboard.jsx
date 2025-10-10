@@ -1,12 +1,18 @@
-import { useContext, useState, useEffect, useCallback } from 'react';
+import { useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { usersAPI, booksAPI, requestAPI, borrowAPI } from '../utils/api';
 import StudentSearch from '../components/StudentSearch';
+import { Html5Qrcode } from 'html5-qrcode';
 
-// QR Scanner Component (sementara mock, nanti akan kita implement)
-const QRScanner = ({ onScan, isActive, onClose }) => {
+// Perbaiki BarcodeScanner Component 
+const BarcodeScanner = ({ onScan, isActive, onClose }) => {
   const [manualInput, setManualInput] = useState('');
+  const [isScanning, setIsScanning] = useState(false);
+  const [error, setError] = useState('');
+  const [cameraPermission, setCameraPermission] = useState('prompt');
+  const scannerRef = useRef(null);
+  const html5QrcodeScannerRef = useRef(null);
 
   const handleManualScan = (e) => {
     e.preventDefault();
@@ -16,20 +22,164 @@ const QRScanner = ({ onScan, isActive, onClose }) => {
     }
   };
 
+  const startScanner = async () => {
+    if (isScanning) return;
+    
+    try {
+      setIsScanning(true);
+      setError('');
+      
+      // Check if we're on mobile
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      
+      if (isMobile) {
+        // Mobile: Try to request camera permission first
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: { ideal: "environment" } // Prefer back camera
+            } 
+          });
+          
+          // Stop the test stream
+          stream.getTracks().forEach(track => track.stop());
+          setCameraPermission('granted');
+        } catch (permError) {
+          console.error('Camera permission denied:', permError);
+          setCameraPermission('denied');
+          
+          // More specific error messages
+          let errorMessage = 'Izin kamera ditolak. ';
+          if (permError.name === 'NotAllowedError') {
+            errorMessage += 'Silakan klik Allow pada popup kamera atau ubah settings browser.';
+          } else if (permError.name === 'NotSecureError' || window.location.protocol !== 'https:') {
+            errorMessage += 'Akses kamera memerlukan HTTPS. Coba gunakan https:// atau localhost.';
+          } else if (permError.name === 'NotFoundError') {
+            errorMessage += 'Kamera tidak ditemukan pada device ini.';
+          } else {
+            errorMessage += `Error: ${permError.message}`;
+          }
+          
+          setError(errorMessage);
+          setIsScanning(false);
+          return;
+        }
+      }
+      
+      // Clear any existing scanner first
+      if (html5QrcodeScannerRef.current) {
+        try {
+          await html5QrcodeScannerRef.current.stop();
+        } catch {
+          console.log('No existing scanner to stop');
+        }
+      }
+
+      // Create new Html5Qrcode instance
+      html5QrcodeScannerRef.current = new Html5Qrcode("barcode-scanner-container");
+      
+      const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 150 },
+        aspectRatio: 1.0
+      };
+
+      // Get available cameras
+      const devices = await Html5Qrcode.getCameras();
+      console.log('Available cameras:', devices);
+      
+      if (devices && devices.length > 0) {
+        // Use back camera if available, otherwise use first camera
+        let cameraId = devices[0].id; // Default
+        
+        // Try to find back camera
+        const backCamera = devices.find(device => 
+          device.label.toLowerCase().includes('back') || 
+          device.label.toLowerCase().includes('rear') ||
+          device.label.toLowerCase().includes('environment')
+        );
+        
+        if (backCamera) {
+          cameraId = backCamera.id;
+        }
+        
+        console.log('Using camera:', cameraId, devices.find(d => d.id === cameraId)?.label);
+        
+        // Start scanning
+        await html5QrcodeScannerRef.current.start(
+          cameraId,
+          config,
+          (decodedText, decodedResult) => {
+            console.log('Barcode scanned:', decodedText, decodedResult);
+            onScan(decodedText);
+            stopScanner();
+          },
+          () => {
+            // Handle scan errors silently - ini normal saat scan
+            // console.log('Scan error (normal):', error);
+          }
+        );
+        
+        setCameraPermission('granted');
+      } else {
+        throw new Error('No cameras found on this device');
+      }
+      
+    } catch (error) {
+      console.error('Scanner start error:', error);
+      setCameraPermission('denied');
+      setError(`Gagal memulai scanner: ${error.message || 'Unknown error'}`);
+      setIsScanning(false);
+    }
+  };
+
+  const stopScanner = async () => {
+    if (html5QrcodeScannerRef.current && isScanning) {
+      try {
+        await html5QrcodeScannerRef.current.stop();
+        setIsScanning(false);
+        html5QrcodeScannerRef.current = null;
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
+        setIsScanning(false);
+        html5QrcodeScannerRef.current = null;
+      }
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      stopScanner();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isActive && !isScanning) {
+      // Auto start scanner when modal opens
+      setTimeout(startScanner, 500);
+    }
+  }, [isActive]);
+
+  const handleClose = () => {
+    stopScanner();
+    onClose();
+  };
+
   if (!isActive) return null;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 px-4">
-      <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-2xl p-8 max-w-md w-full shadow-2xl">
+      <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-700 rounded-2xl p-6 max-w-lg w-full shadow-2xl">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-xl font-bold text-white flex items-center gap-2">
             <svg className="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 12V9m4.01 0h2M6 12a6 6 0 11-6 6 6 6 0 016-6z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
             </svg>
-            Scan QR Code Buku
+            Scan Barcode Buku
           </h3>
           <button 
-            onClick={onClose} 
+            onClick={handleClose} 
             className="text-gray-400 hover:text-white transition-colors p-1"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -38,40 +188,88 @@ const QRScanner = ({ onScan, isActive, onClose }) => {
           </button>
         </div>
         
-        {/* QR Camera akan diimplementasi nanti */}
-        <div className="mb-6 p-12 border-2 border-dashed border-gray-600 rounded-xl text-center bg-gray-800/50">
-          <div className="text-gray-300 mb-3 flex flex-col items-center gap-3">
-            <svg className="w-16 h-16 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            <span className="text-lg font-medium">📷 QR Scanner Camera</span>
-          </div>
-          <div className="text-sm text-gray-400">
-            (Camera integration coming soon)
-          </div>
-        </div>
-
-        {/* Manual Input sebagai fallback */}
-        <div className="border-t border-gray-700 pt-6">
-          <form onSubmit={handleManualScan}>
-            <label className="block text-sm font-medium text-gray-300 mb-3">
-              Input Manual Book ID:
-            </label>
-            <div className="flex gap-3">
-              <input
-                type="text"
-                value={manualInput}
-                onChange={(e) => setManualInput(e.target.value)}
-                placeholder="Masukkan Book ID (contoh: BK001)"
-                className="flex-1 px-4 py-3 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-red-500"
-              />
+        {/* Camera Scanner Container */}
+        <div className="mb-6 relative">
+          <div id="barcode-scanner-container" ref={scannerRef} className="w-full min-h-[300px] bg-gray-800 rounded-lg overflow-hidden"></div>
+          
+          {error && (
+            <div className="mt-3 p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+              {error}
+            </div>
+          )}
+          
+          {cameraPermission === 'denied' && (
+            <div className="mt-3 p-4 bg-yellow-900/50 border border-yellow-700 rounded-lg text-yellow-300 text-sm">
+              <p className="font-medium mb-2">📷 Izin Kamera Diperlukan</p>
+              <p>Untuk menggunakan scanner, silakan:</p>
+              <ol className="list-decimal list-inside mt-2 space-y-1 text-xs">
+                <li>Klik ikon 🔒 di address bar browser</li>
+                <li>Pilih "Allow" untuk Camera</li>
+                <li>Refresh halaman dan coba lagi</li>
+              </ol>
               <button
-                type="submit"
-                className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white font-medium rounded-lg hover:from-red-700 hover:to-red-800 transition-all duration-300 shadow-lg hover:shadow-red-500/25"
+                onClick={startScanner}
+                className="mt-3 px-3 py-1 bg-yellow-600 text-white rounded text-xs hover:bg-yellow-700"
               >
-                Scan
+                Coba Lagi
               </button>
             </div>
+          )}
+          
+          {!isScanning && cameraPermission !== 'denied' && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-800/90 rounded-lg">
+              <div className="text-center">
+                <svg className="w-16 h-16 text-red-500 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                <p className="text-gray-300 mb-3">Kamera belum aktif</p>
+                <button
+                  onClick={startScanner}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  📷 Aktifkan Scanner
+                </button>
+              </div>
+            </div>
+          )}
+
+          {isScanning && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-10">
+              <button
+                onClick={stopScanner}
+                className="px-4 py-2 bg-red-600/90 text-white rounded-lg hover:bg-red-700/90 transition-colors backdrop-blur-sm"
+              >
+                ⏹️ Stop Scanner
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Manual Input sebagai alternatif - PRIORITAS untuk HP */}
+        <div className="border-t border-gray-700 pt-4">
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            📱 Input Manual Book ID (Untuk Testing):
+          </label>
+          <div className="bg-blue-900/20 border border-blue-600 rounded-lg p-3 mb-3">
+            <p className="text-blue-300 text-sm">
+              💡 Tips: Coba input manual Book ID dulu untuk test fitur. 
+              Contoh ID dari admin: BK123456789
+            </p>
+          </div>
+          <form onSubmit={handleManualScan} className="flex gap-2">
+            <input
+              type="text"
+              value={manualInput}
+              onChange={(e) => setManualInput(e.target.value)}
+              placeholder="Ketik Book ID (contoh: BK123456789)..."
+              className="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-2 focus:ring-red-500 focus:border-transparent text-lg"
+            />
+            <button
+              type="submit"
+              className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-bold"
+            >
+              ✅ Scan
+            </button>
           </form>
         </div>
       </div>
@@ -92,16 +290,19 @@ function PetugasDashboard() {
   const [readyPickups, setReadyPickups] = useState([]);
   
   // QR Scanner states
-  const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showBarcodeScanner, setShowBarcodeScanner] = useState(false);
   const [scannedBook, setScannedBook] = useState(null);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
   const [showSidebar, setShowSidebar] = useState(false);
-  const [showScanner, setShowScanner] = useState(false);
+
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Tambahkan state untuk book selection
   const [selectedBook, setSelectedBook] = useState(null);
+  
+  // Reset trigger untuk StudentSearch component
+  const [resetTrigger, setResetTrigger] = useState(0);
 
   // Statistics
   const [stats, setStats] = useState({
@@ -257,10 +458,28 @@ function PetugasDashboard() {
   }, [requests, readyPickups]);
 
   // QR Scan handlers
-  const handleQRScan = async (bookId) => {
+  const handleQRScan = async (scannedData) => {
     try {
-      // Find book by ID (simulate QR scan result)
-      const book = books.find(b => b.id.toString() === bookId || b.title.toLowerCase().includes(bookId.toLowerCase()));
+      console.log('Scanned data:', scannedData);
+      
+      // Try to parse if it's JSON data from our barcode
+      let bookId = scannedData;
+      try {
+        const parsed = JSON.parse(scannedData);
+        if (parsed.id) {
+          bookId = parsed.id;
+        }
+      } catch {
+        // If not JSON, use as direct book ID
+        bookId = scannedData;
+      }
+
+      // Find book by book_id or database id or title
+      const book = books.find(b => 
+        (b.bookId && b.bookId === bookId) || 
+        b.id.toString() === bookId || 
+        b.title.toLowerCase().includes(bookId.toLowerCase())
+      );
       
       if (!book) {
         setNotification(`Buku dengan ID "${bookId}" tidak ditemukan`);
@@ -269,39 +488,18 @@ function PetugasDashboard() {
       }
 
       setScannedBook(book);
-      setShowQRScanner(false);
+      setShowBarcodeScanner(false);
       setNotification(`Buku "${book.title}" berhasil di-scan!`);
       setTimeout(() => setNotification(''), 3000);
       
     } catch (error) {
-      console.error('Error processing QR scan:', error);
+      console.error('Error processing barcode scan:', error);
       setNotification('Error saat memproses scan');
       setTimeout(() => setNotification(''), 3000);
     }
   };
 
-  // Function untuk handle book scan (dari QR atau manual input)
-  const handleBookScan = async (bookId) => {
-    try {
-      const response = await fetch(`http://localhost:3001/api/books/${bookId}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        }
-      });
-      
-      const data = await response.json();
-      if (data.status === 'success') {
-        setSelectedBook(data.data.book);
-        setShowScanner(false);
-        alert(`Buku berhasil di-scan: ${data.data.book.title}`);
-      } else {
-        alert('Buku tidak ditemukan!');
-      }
-    } catch (error) {
-      console.error('Get book error:', error);
-      alert('Gagal mendapatkan info buku');
-    }
-  };
+
 
   const handleQuickBorrow = async () => {
     if (!scannedBook || !selectedStudent) {
@@ -349,27 +547,22 @@ function PetugasDashboard() {
     setIsProcessing(true);
     
     try {
-      const response = await fetch('http://localhost:3001/api/borrow/direct', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify({
-          bookId: selectedBook.id,
-          userId: selectedStudent.id
-        })
+      const data = await borrowAPI.createDirect({
+        bookId: selectedBook.id,
+        userId: selectedStudent.id
       });
-      
-      const data = await response.json();
       
       if (data.status === 'success') {
         alert(`✅ Peminjaman berhasil!\n\nBuku: ${selectedBook.title}\nSiswa: ${selectedStudent.full_name}\nTanggal Kembali: ${data.data.dueDate}`);
         
-        // Reset form
+        // Reset semua form ke kondisi awal
         setSelectedBook(null);
         setSelectedStudent(null);
-        setShowScanner(false);
+        setScannedBook(null);
+        setShowBarcodeScanner(false);
+        
+        // Trigger reset untuk StudentSearch component
+        setResetTrigger(prev => prev + 1);
         
         // Refresh data
         fetchRequests();
@@ -660,14 +853,14 @@ function PetugasDashboard() {
                     <h3 className="text-2xl font-bold text-white">📱 Peminjaman Langsung (Walk-in)</h3>
                     <button
                       onClick={() => {
-                        setShowQRScanner(true);
+                        setShowBarcodeScanner(true);
                       }}
                       className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-700 hover:to-red-800 transition-all duration-300 font-medium shadow-lg hover:shadow-red-500/25 flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 12V9m4.01 0h2M6 12a6 6 0 11-6 6 6 6 0 016-6z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                       </svg>
-                      Scan QR Code Buku
+                      Scan Barcode Buku
                     </button>
                   </div>
 
@@ -690,7 +883,7 @@ function PetugasDashboard() {
                           <svg className="w-16 h-16 mx-auto mb-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 12V9m4.01 0h2M6 12a6 6 0 11-6 6 6 6 0 016-6z" />
                           </svg>
-                          <p>Klik "Scan QR Code Buku" untuk memulai</p>
+                          <p>Klik "Scan Barcode Buku" untuk memulai</p>
                         </div>
                       )}
                     </div>
@@ -700,6 +893,7 @@ function PetugasDashboard() {
                       <StudentSearch 
                         onStudentSelect={setSelectedStudent}
                         selectedStudent={selectedStudent}
+                        resetTrigger={resetTrigger}
                       />
                     </div>
                   </div>
@@ -847,14 +1041,14 @@ function PetugasDashboard() {
                     </h3>
                     <button
                       onClick={() => {
-                        setShowQRScanner(true);
+                        setShowBarcodeScanner(true);
                       }}
                       className="px-6 py-3 bg-gradient-to-r from-purple-600 to-purple-700 text-white font-medium rounded-lg hover:from-purple-700 hover:to-purple-800 transition-all duration-300 shadow-lg hover:shadow-purple-500/25 flex items-center gap-2"
                     >
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M12 12V9m4.01 0h2M6 12a6 6 0 11-6 6 6 6 0 016-6z" />
                       </svg>
-                      Scan QR Code untuk Return
+                      Scan Barcode untuk Return
                     </button>
                   </div>
 
@@ -868,7 +1062,7 @@ function PetugasDashboard() {
                     <ol className="text-yellow-100 space-y-2 list-decimal list-inside text-sm">
                       <li className="flex items-center gap-2">
                         <span className="w-6 h-6 bg-yellow-500/20 rounded-full flex items-center justify-center text-xs font-bold">1</span>
-                        Scan QR code pada buku yang dikembalikan
+                        Scan barcode pada buku yang dikembalikan
                       </li>
                       <li className="flex items-center gap-2">
                         <span className="w-6 h-6 bg-yellow-500/20 rounded-full flex items-center justify-center text-xs font-bold">2</span>
@@ -897,27 +1091,23 @@ function PetugasDashboard() {
                     </h2>
                     
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* QR Scanner Section - Yang sudah ada */}
+                      {/* Barcode Scanner Section */}
                       <div className="bg-gray-700 p-6 rounded-lg">
                         <h3 className="text-lg font-semibold text-white mb-4 flex items-center">
                           <span className="mr-2">📚</span>
-                          Scan QR Code Buku
+                          Scan Barcode Buku
                         </h3>
                         
-                        <QRScanner 
-                          onScan={handleBookScan}
-                          isActive={showScanner}
-                          onClose={() => setShowScanner(false)}
-                        />
-                        
-                        {!showScanner && (
-                          <button
-                            onClick={() => setShowScanner(true)}
-                            className="w-full px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                          >
-                            📱 Scan QR Code Buku
-                          </button>
-                        )}
+                        <div className="text-center p-6 border-2 border-dashed border-gray-600 rounded-lg bg-gray-800/50">
+                          <div className="text-gray-300 mb-3">
+                            <svg className="w-12 h-12 text-red-500 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                            </svg>
+                          </div>
+                          <p className="text-gray-300 text-sm mb-4">
+                            Klik "Scan Barcode Buku" untuk memulai
+                          </p>
+                        </div>
                         
                         {/* Selected Book Display */}
                         {scannedBook && (
@@ -942,6 +1132,7 @@ function PetugasDashboard() {
                         <StudentSearch 
                           onStudentSelect={setSelectedStudent}
                           selectedStudent={selectedStudent}
+                          resetTrigger={resetTrigger}
                         />
                       </div>
                     </div>
@@ -987,7 +1178,7 @@ function PetugasDashboard() {
                           onClick={() => {
                             setScannedBook(null);
                             setSelectedStudent(null);
-                            setShowScanner(false);
+                            setShowBarcodeScanner(false);
                           }}
                           className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
                         >
@@ -1002,11 +1193,11 @@ function PetugasDashboard() {
           </div>
         </div>
 
-        {/* QR Scanner Modal */}
-        <QRScanner
-          isActive={showQRScanner}
+        {/* Barcode Scanner Modal */}
+        <BarcodeScanner
+          isActive={showBarcodeScanner}
           onScan={handleQRScan}
-          onClose={() => setShowQRScanner(false)}
+          onClose={() => setShowBarcodeScanner(false)}
         />
       </div>
     </div>

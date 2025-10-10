@@ -1,16 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { userAPI } from '../utils/api';
 
-const StudentSearch = ({ onStudentSelect, selectedStudent }) => {
+const StudentSearch = ({ onStudentSelect, selectedStudent, resetTrigger }) => {
     const [query, setQuery] = useState('');
     const [students, setStudents] = useState([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const [loading, setLoading] = useState(false);
 
+    // Reset input when resetTrigger changes
+    useEffect(() => {
+        if (resetTrigger) {
+            setQuery('');
+            setStudents([]);
+            setShowDropdown(false);
+        }
+    }, [resetTrigger]);
+
+    const searchStudents = useCallback(async (searchQuery) => {
+        try {
+            setLoading(true);
+            const response = await userAPI.searchStudents(searchQuery);
+            console.log('🔍 Search response:', response);
+            
+            // Backend returns: { status: 'success', data: { students: [...] } }
+            const studentsData = response?.data?.students || [];
+            setStudents(studentsData);
+            setShowDropdown(studentsData.length > 0);
+        } catch (error) {
+            console.error('Search error:', error);
+            setStudents([]);
+            setShowDropdown(false);
+        } finally {
+            setLoading(false);
+        }
+    }, []);
+
     // Debounced search
     useEffect(() => {
         const timer = setTimeout(() => {
             if (query.length >= 2) {
-                searchStudents();
+                searchStudents(query);
             } else {
                 setStudents([]);
                 setShowDropdown(false);
@@ -18,28 +47,7 @@ const StudentSearch = ({ onStudentSelect, selectedStudent }) => {
         }, 300);
 
         return () => clearTimeout(timer);
-    }, [query]);
-
-    const searchStudents = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch(`http://localhost:3001/api/users/search?query=${query}`, {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            
-            const data = await response.json();
-            if (data.status === 'success') {
-                setStudents(data.data.students);
-                setShowDropdown(true);
-            }
-        } catch (error) {
-            console.error('Search error:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
+    }, [query, searchStudents]);
 
     const handleSelectStudent = (student) => {
         onStudentSelect(student);
@@ -68,9 +76,9 @@ const StudentSearch = ({ onStudentSelect, selectedStudent }) => {
             </div>
 
             {/* Dropdown Results */}
-            {showDropdown && students.length > 0 && (
+            {showDropdown && students && students.length > 0 && (
                 <div className="absolute z-10 w-full mt-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                    {students.map((student) => (
+                    {students?.map((student) => (
                         <button
                             key={student.id}
                             onClick={() => handleSelectStudent(student)}

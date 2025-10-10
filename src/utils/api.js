@@ -1,5 +1,24 @@
 // API configuration and utility functions
-const API_BASE_URL = 'http://localhost:3001/api';
+// Auto-detect API URL based on current host
+const getApiBaseUrl = () => {
+  const currentUrl = window.location.href;
+  const hostname = window.location.hostname;
+  
+  // Kalau akses via ngrok HTTPS, gunakan relative URL untuk proxy
+  if (currentUrl.includes('ngrok')) {
+    return '/api';
+  }
+  
+  // Kalau akses via IP lokal (HP)
+  if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+    return `http://${hostname}:3001/api`;
+  }
+  
+  // Default localhost untuk development
+  return 'http://localhost:3001/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Get token from localStorage
 const getToken = () => {
@@ -77,10 +96,10 @@ export const authAPI = {
   },
 
   // Register user (DON'T auto-login)
-  register: async (username, password, role) => {
+  register: async (username, password) => {
     const response = await apiRequest('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, role }),
+      body: JSON.stringify({ username, password }),
     });
     
     // Don't save token automatically after register
@@ -396,6 +415,10 @@ export const userAPI = {
   
   getStats: async () => {
     return await apiRequest('/users/stats');
+  },
+
+  searchStudents: async (query) => {
+    return await apiRequest(`/users/search?query=${encodeURIComponent(query)}`);
   }
 };
 
